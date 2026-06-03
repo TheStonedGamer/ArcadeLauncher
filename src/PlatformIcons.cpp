@@ -208,10 +208,14 @@ void PlatformIcons::Load(const EmulatorConfig& emuCfg,
         { Platform::Dolphin, FindDolphinExe(emuCfg.dolphinPath) },
         { Platform::Ryujinx, FindRyujinxExe(emuCfg.ryujinxPath) },
         // Emulators managed by the launcher — use configured path directly
-        { Platform::RPCS3,   emuCfg.rpcs3Path },
-        { Platform::N64,     emuCfg.n64Path   },
-        { Platform::NES,     emuCfg.nesPath   },
-        { Platform::SNES,    emuCfg.snesPath  },
+        { Platform::RPCS3,   emuCfg.rpcs3Path        },
+        { Platform::N64,     emuCfg.n64Path          },
+        { Platform::NES,     emuCfg.nesPath          },
+        { Platform::SNES,    emuCfg.snesPath         },
+        { Platform::PS1,     emuCfg.duckstationPath  },
+        { Platform::PS2,     emuCfg.pcsx2Path        },
+        { Platform::Xbox360, emuCfg.xeniaPath        },
+        { Platform::Xbox,    emuCfg.xemuPath         },
     };
 
     for (auto& e : entries) {

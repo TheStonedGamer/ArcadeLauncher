@@ -20,6 +20,8 @@ bool App::Initialize(HINSTANCE hInstance) {
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     wc.lpszClassName = WNDCLASS_NAME;
+    wc.hIcon         = LoadIcon(hInstance, MAKEINTRESOURCE(101)); // IDI_APPICON
+    wc.hIconSm       = LoadIcon(hInstance, MAKEINTRESOURCE(101)); // IDI_APPICON (small)
     RegisterClassExW(&wc);
 
     auto& cfg = m_config.Get();

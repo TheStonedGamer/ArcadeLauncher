@@ -146,11 +146,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Windows resource file: VERSIONINFO + app manifest -->
+    <!-- Windows resource file: VERSIONINFO + app manifest + app icon -->
     <ResourceCompile Include="resources\ArcadeLauncher.rc">
-      <!-- rc.exe needs to find Version.h (in src\) and the manifest (in resources\) -->
+      <!-- rc.exe needs to find Version.h (in src\) and the manifest + icon (in resources\) -->
       <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)resources;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- App icon — embedded via ArcadeLauncher.rc; listed here so it appears in Solution Explorer -->
+    <Image Include="resources\icon.ico" />
   </ItemGroup>
 
   <!-- ── LZMA SDK (bundled in src\lzma\, public domain — Igor Pavlov) ──────── -->

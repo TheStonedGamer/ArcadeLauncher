@@ -1,0 +1,114 @@
+name: Promote to Release
+
+# Triggered manually — either by Claude running:
+#   gh workflow run promote.yml --ref staging -f bump=patch
+# or from the GitHub Actions UI (Actions → Promote to Release → Run workflow).
+#
+# What it does (fully automated):
+#   1. Bumps the version in src/Version.h (patch / minor / major)
+#   2. Commits the bump to staging and pushes
+#   3. Fast-forward merges staging → main and pushes
+#   4. Creates and pushes a vMAJOR.MINOR.PATCH tag on main
+#   5. The tag push automatically triggers release.yml which builds the MSI
+#      and publishes a GitHub Release with the installer attached.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version component to increment"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch   # 1.0.0 → 1.0.1  (bug fixes, small tweaks)
+          - minor   # 1.0.0 → 1.1.0  (new features, backward-compatible)
+          - major   # 1.0.0 → 2.0.0  (breaking changes)
+
+permissions:
+  contents: write   # push commits + tags + trigger release.yml
+
+jobs:
+  promote:
+    name: Bump version, merge staging → main, tag
+    runs-on: windows-latest
+
+    steps:
+      # ── 1. Full checkout (we need history for the merge) ─────────────────────
+      - name: Checkout staging
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          fetch-depth: 0          # full history so ff-merge works
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Configure git identity ─────────────────────────────────────────────
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ── 3. Read current version and bump ─────────────────────────────────────
+      - name: Bump version in Version.h
+        id: ver
+        shell: pwsh
+        run: |
+          $file = "src\Version.h"
+          $txt  = Get-Content $file -Raw
+
+          # Extract current numbers
+          $major = [int][regex]::Match($txt, '#define ARCADE_VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [int][regex]::Match($txt, '#define ARCADE_VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [int][regex]::Match($txt, '#define ARCADE_VERSION_PATCH\s+(\d+)').Groups[1].Value
+
+          Write-Host "Current version: $major.$minor.$patch"
+          Write-Host "Bump type      : ${{ inputs.bump }}"
+
+          # Increment the requested component, reset lower ones
+          switch ('${{ inputs.bump }}') {
+            'major' { $major++; $minor = 0; $patch = 0 }
+            'minor' { $minor++;             $patch = 0 }
+            'patch' { $patch++                         }
+          }
+
+          $newVer = "$major.$minor.$patch"
+          Write-Host "New version    : $newVer"
+
+          # Rewrite Version.h in-place (preserve all other content)
+          $txt = $txt -replace '(#define ARCADE_VERSION_MAJOR\s+)\d+', "`${1}$major"
+          $txt = $txt -replace '(#define ARCADE_VERSION_MINOR\s+)\d+', "`${1}$minor"
+          $txt = $txt -replace '(#define ARCADE_VERSION_PATCH\s+)\d+', "`${1}$patch"
+          $txt = $txt -replace '(#define ARCADE_VERSION_BUILD\s+)\d+', "`${1}0"
+          Set-Content $file $txt -NoNewline
+
+          # Export for later steps
+          "VERSION=$newVer"   >> $env:GITHUB_OUTPUT
+          "TAG=v$newVer"      >> $env:GITHUB_OUTPUT
+
+      # ── 4. Commit the version bump to staging ─────────────────────────────────
+      - name: Commit version bump
+        run: |
+          git add src/Version.h
+          git commit -m "chore: bump version to ${{ steps.ver.outputs.VERSION }}"
+          git push origin staging
+
+      # ── 5. Fast-forward merge staging → main ─────────────────────────────────
+      - name: Merge staging into main
+        run: |
+          git fetch origin main
+          git checkout main
+          git merge --ff-only origin/staging
+          git push origin main
+
+      # ── 6. Tag the release on main ────────────────────────────────────────────
+      - name: Create and push version tag
+        run: |
+          git tag ${{ steps.ver.outputs.TAG }} -m "Release ${{ steps.ver.outputs.VERSION }}"
+          git push origin ${{ steps.ver.outputs.TAG }}
+
+      # Pushing the tag above automatically triggers release.yml,
+      # which builds the MSI and publishes the GitHub Release.
+      - name: Done
+        run: |
+          echo "Tag ${{ steps.ver.outputs.TAG }} pushed."
+          echo "release.yml is now building the MSI — check the Actions tab."

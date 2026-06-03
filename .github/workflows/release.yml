@@ -1,18 +1,12 @@
 name: Release
 
-# Triggers only on version tags like "v1.2.3" that point to a commit on main.
-# Workflow:
-#   1. Develop on staging, test locally.
-#   2. When ready: merge staging → main (or have Claude push staging to main).
-#   3. Bump Version.h, commit on main.
-#   4. git tag v1.2.3 && git push origin main v1.2.3
-#   5. This workflow fires → builds MSI → creates GitHub Release.
+# Triggered automatically by the promote.yml workflow when it pushes a version tag.
+# Do NOT add a `branches:` filter here — tag and branch push filters are independent
+# in GitHub Actions; adding branches would make this fire on every push to main.
 on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
-    branches:
-      - main   # tag must be reachable from main
 
 permissions:
   contents: write   # needed to create GitHub Releases and upload assets

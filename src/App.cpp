@@ -941,11 +941,17 @@ void App::LaunchGame(const Game& game) {
     bool ok = false;
 
     if (!game.launchUri.empty()) {
-        // URI launch (Steam, Epic)
+        // URI launch (Steam, Epic).
+        // Use the game's own exe filename as a precise hint when we have it
+        // (Epic sets exePath from the manifest). For Steam we leave the hint
+        // empty so LaunchUri falls back to new-process detection — watching
+        // steam.exe (always running) was wrong and never fired the callback.
         std::wstring hint;
-        if (game.platform == Platform::Steam)
-            hint = L"steam.exe"; // wait for game process by hint — hard for Steam
-        ok = m_monitor.LaunchUri(game.launchUri, hint, 30,
+        if (!game.exePath.empty()) {
+            auto sl = game.exePath.rfind(L'\\');
+            hint = (sl != std::wstring::npos) ? game.exePath.substr(sl + 1) : game.exePath;
+        }
+        ok = m_monitor.LaunchUri(game.launchUri, hint, 60,
             [this, id = game.id](uint64_t elapsed) {
                 if (auto* g = m_library.FindById(id)) {
                     g->playtimeSeconds += elapsed;

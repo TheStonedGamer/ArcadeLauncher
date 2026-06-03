@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "ProcessMonitor.h"
+#include <set>
 
 ProcessMonitor::~ProcessMonitor() {
     KillCurrent();
@@ -32,43 +33,94 @@ bool ProcessMonitor::Launch(const std::wstring& exe, const std::wstring& args,
     return true;
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+static std::set<DWORD> SnapshotPids() {
+    std::set<DWORD> pids;
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap == INVALID_HANDLE_VALUE) return pids;
+    PROCESSENTRY32W pe{ sizeof(pe) };
+    if (Process32FirstW(hSnap, &pe))
+        do { pids.insert(pe.th32ProcessID); } while (Process32NextW(hSnap, &pe));
+    CloseHandle(hSnap);
+    return pids;
+}
+
+// Processes whose names indicate launcher/system infrastructure — never the game.
+static bool IsInfraProcess(const std::wstring& lowerName) {
+    static const wchar_t* kSkip[] = {
+        L"steam", L"steamwebhelper", L"steamservice",
+        L"epicgameslauncher", L"epiconlineservices", L"unrealcefsubprocess",
+        L"easyanticheat", L"battleye", L"galaxyclient", L"gog",
+        L"conhost", L"svchost", L"runtimebroker", L"dllhost",
+        L"explorer", L"taskhostw", L"csrss", L"wininit", L"smss",
+        nullptr
+    };
+    for (int i = 0; kSkip[i]; ++i)
+        if (lowerName.find(kSkip[i]) != std::wstring::npos) return true;
+    return false;
+}
+
 bool ProcessMonitor::LaunchUri(const std::wstring& uri, const std::wstring& exeHint,
                                 int timeoutSec, DoneCallback cb) {
-    // ShellExecute the URI, then poll for a process matching exeHint
+    // Snapshot all PIDs that exist BEFORE we launch so we can identify the new
+    // game process as whichever one appears afterwards.
+    std::set<DWORD> existingPids = SnapshotPids();
+
     HINSTANCE r = ShellExecuteW(nullptr, L"open", uri.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     if ((INT_PTR)r <= 32) return false;
 
-    if (exeHint.empty() || cb == nullptr) return true;
+    if (cb == nullptr) return true;
 
-    // Start a background thread that polls for the launched process
+    // Lowercase the hint once for repeated comparisons.
+    std::wstring hintLow = exeHint;
+    for (auto& c : hintLow) c = towlower(c);
+
     m_running.store(true);
-    m_watchThread = std::thread([this, exeHint, timeoutSec, cb = std::move(cb)]() {
+    m_watchThread = std::thread([this, timeoutSec, existingPids,
+                                 hintLow, cb = std::move(cb)]() mutable {
+
         auto deadline = std::chrono::steady_clock::now() +
                         std::chrono::seconds(timeoutSec);
         HANDLE hFound = INVALID_HANDLE_VALUE;
 
-        while (std::chrono::steady_clock::now() < deadline) {
-            // Enumerate processes looking for exeHint
+        // Give the launcher a moment to spawn the game process.
+        Sleep(2000);
+
+        while (std::chrono::steady_clock::now() < deadline &&
+               hFound == INVALID_HANDLE_VALUE) {
+
             HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
             if (hSnap != INVALID_HANDLE_VALUE) {
                 PROCESSENTRY32W pe{ sizeof(pe) };
                 if (Process32FirstW(hSnap, &pe)) {
                     do {
-                        std::wstring exeName = pe.szExeFile;
-                        std::wstring hint = exeHint;
-                        for (auto& c : exeName) c = towlower(c);
-                        for (auto& c : hint)    c = towlower(c);
-                        if (exeName.find(hint) != std::wstring::npos) {
-                            hFound = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
-                                                 FALSE, pe.th32ProcessID);
-                            break;
+                        // Only consider processes that weren't running before we launched.
+                        if (existingPids.count(pe.th32ProcessID)) continue;
+
+                        std::wstring nameLow = pe.szExeFile;
+                        for (auto& c : nameLow) c = towlower(c);
+
+                        if (!hintLow.empty()) {
+                            // Precise hint (e.g. Epic exe filename) — match it.
+                            if (nameLow.find(hintLow) == std::wstring::npos) continue;
+                        } else {
+                            // No hint (Steam) — skip known infrastructure, take
+                            // the first new "real" process that appeared.
+                            if (IsInfraProcess(nameLow)) continue;
                         }
+
+                        hFound = OpenProcess(
+                            SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                            FALSE, pe.th32ProcessID);
+                        if (hFound != INVALID_HANDLE_VALUE) break;
+
                     } while (Process32NextW(hSnap, &pe));
                 }
                 CloseHandle(hSnap);
             }
-            if (hFound != INVALID_HANDLE_VALUE) break;
-            Sleep(1000);
+
+            if (hFound == INVALID_HANDLE_VALUE) Sleep(1500);
         }
 
         if (hFound != INVALID_HANDLE_VALUE) {
@@ -85,7 +137,8 @@ void ProcessMonitor::WatchThread(HANDLE hProcess, DoneCallback cb) {
     auto start = std::chrono::steady_clock::now();
     WaitForSingleObject(hProcess, INFINITE);
     auto end = std::chrono::steady_clock::now();
-    uint64_t elapsed = (uint64_t)std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
+    uint64_t elapsed = (uint64_t)std::chrono::duration_cast<
+        std::chrono::seconds>(end - start).count();
     CloseHandle(hProcess);
     m_hProcess = INVALID_HANDLE_VALUE;
     m_running.store(false);

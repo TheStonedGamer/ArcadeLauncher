@@ -498,12 +498,14 @@ void SettingsWindow::DestroyPageControls() {
 void SettingsWindow::BuildGeneralPage() {
     int y = PageHeader(m_hwnd, m_pageControls, L"General");
 
-    AddPC(Group(m_hwnd, L" Behavior ", K_CX, y, K_CW, 68));
+    AddPC(Group(m_hwnd, L" Behavior ", K_CX, y, K_CW, 90));
     AddPC(Check(m_hwnd, L"Start fullscreen  (F11 to toggle at any time)",
                 ID_P_CHK1, K_CX + 12, y + 20, K_CW - 24));
-    AddPC(Check(m_hwnd, L"Minimize launcher to taskbar when a game launches",
+    AddPC(Check(m_hwnd, L"Minimize launcher to tray when a game launches",
                 ID_P_CHK2, K_CX + 12, y + 42, K_CW - 24));
-    y += 76;
+    AddPC(Check(m_hwnd, L"Start at Boot  (launches hidden in the system tray on Windows login)",
+                ID_P_CHK3, K_CX + 12, y + 64, K_CW - 24));
+    y += 98;
 
     AddPC(Group(m_hwnd, L" IGDB Metadata  (optional — enables cover art and descriptions) ",
                 K_CX, y, K_CW, 158));
@@ -743,15 +745,47 @@ void SettingsWindow::BuildCustomPage(int /*libIdx*/) {
 
 // ─── Page loaders / savers ────────────────────────────────────────────────────
 
+static bool ReadStartupReg() {
+    HKEY hk = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+            0, KEY_QUERY_VALUE, &hk) != ERROR_SUCCESS) return false;
+    DWORD sz = 0;
+    bool found = RegQueryValueExW(hk, L"ArcadeLauncher",
+                                  nullptr, nullptr, nullptr, &sz) == ERROR_SUCCESS;
+    RegCloseKey(hk);
+    return found;
+}
+
+static void WriteStartupReg(bool enable) {
+    HKEY hk = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+            0, KEY_SET_VALUE, &hk) != ERROR_SUCCESS) return;
+    if (enable) {
+        wchar_t exe[MAX_PATH]{};
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring val = std::wstring(L"\"") + exe + L"\" --tray";
+        RegSetValueExW(hk, L"ArcadeLauncher", 0, REG_SZ,
+            reinterpret_cast<const BYTE*>(val.c_str()),
+            static_cast<DWORD>((val.size() + 1) * sizeof(wchar_t)));
+    } else {
+        RegDeleteValueW(hk, L"ArcadeLauncher");
+    }
+    RegCloseKey(hk);
+}
+
 void SettingsWindow::LoadGeneralPage() {
     Chk(PC(ID_P_CHK1), m_work.startFullscreen);
     Chk(PC(ID_P_CHK2), m_work.minimizeOnLaunch);
+    Chk(PC(ID_P_CHK3), ReadStartupReg());
     SetWindowTextW(PC(ID_P_EDIT1), m_work.igdbClientId.c_str());
     SetWindowTextW(PC(ID_P_EDIT2), m_work.igdbClientSecret.c_str());
 }
 void SettingsWindow::SaveGeneralPage() {
     m_work.startFullscreen  = IsChk(PC(ID_P_CHK1));
     m_work.minimizeOnLaunch = IsChk(PC(ID_P_CHK2));
+    WriteStartupReg(IsChk(PC(ID_P_CHK3)));
     m_work.igdbClientId     = GetTxt(PC(ID_P_EDIT1));
     m_work.igdbClientSecret = GetTxt(PC(ID_P_EDIT2));
 }

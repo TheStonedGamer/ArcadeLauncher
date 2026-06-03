@@ -1376,11 +1376,6 @@ void App::ShowTrayMenu() {
     AppendMenuW(menu, MF_STRING, IDM_TRAY_SETTINGS, L"Settings");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
-    // Start at Boot (checked when enabled)
-    UINT startupFlags = MF_STRING | (IsStartupEnabled() ? MF_CHECKED : 0);
-    AppendMenuW(menu, startupFlags, IDM_TRAY_STARTUP, L"Start at Boot");
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-
     // Exit
     AppendMenuW(menu, MF_STRING, IDM_TRAY_EXIT, L"Exit");
 

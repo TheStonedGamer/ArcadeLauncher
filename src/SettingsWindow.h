@@ -37,7 +37,7 @@ private:
         ID_CANCEL  = 13,
         ID_APPLY   = 14,
         // Per-page generic IDs (only one page visible at a time)
-        ID_P_CHK1  = 100, ID_P_CHK2  = 101,
+        ID_P_CHK1  = 100, ID_P_CHK2  = 101, ID_P_CHK3 = 102,
         ID_P_EDIT1 = 110, ID_P_EDIT2 = 111,
         ID_P_LIST1 = 120,
         ID_P_BTN1  = 130, ID_P_BTN2  = 131, ID_P_BTN3  = 132,

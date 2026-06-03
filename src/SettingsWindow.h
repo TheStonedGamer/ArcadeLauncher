@@ -89,6 +89,7 @@ private:
     // Version check helpers
     void        SetVersionLabel(const std::wstring& installed, const std::wstring& latest);
     void        SaveTagForPage(int page, const std::wstring& tag);
+    void        SetPathForPage(int page, const std::wstring& exePath);
     std::wstring InstalledTagForPage(int page) const;
     std::string  GithubRepoForPage(int page) const;
 

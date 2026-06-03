@@ -285,27 +285,47 @@ LRESULT SettingsWindow::HandleMsg(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_EMUDOWNLOAD_DONE: {
         int  page    = (int)wp;
         auto* result = reinterpret_cast<EmuDownloadResult*>(lp);
-        // Only act if this page is still open
-        if (page == m_currentPage && result) {
-            HWND btnDl = PC(ID_P_BTN5);
-            if (btnDl) { EnableWindow(btnDl, TRUE); SetWindowTextW(btnDl, L"Download latest"); }
+
+        if (result) {
+            bool onPage = (page == m_currentPage);
+
+            // Re-enable the Download button if the user is still on this page
+            if (onPage) {
+                HWND btnDl = PC(ID_P_BTN5);
+                if (btnDl) { EnableWindow(btnDl, TRUE); SetWindowTextW(btnDl, L"Download latest"); }
+            }
 
             if (!result->exePath.empty() && result->exePath.substr(0, 4) == L"ERR:") {
-                MessageBoxW(m_hwnd, result->exePath.c_str() + 4, L"Download failed",
-                            MB_OK | MB_ICONERROR);
+                // Only surface error dialogs when the page is still visible
+                if (onPage)
+                    MessageBoxW(m_hwnd, result->exePath.c_str() + 4, L"Download failed",
+                                MB_OK | MB_ICONERROR);
             } else {
                 if (!result->exePath.empty()) {
-                    SetWindowTextW(PC(ID_P_EDIT1), result->exePath.c_str());
-                    SaveCurrentPage();  // persist new path into m_work immediately
-                } else
+                    // Always persist to m_work/m_cfg — even if the user navigated away.
+                    // SetPathForPage also syncs the NES<->SNES sibling (same Mesen2 exe).
+                    SetPathForPage(page, result->exePath);
+                    if (onPage)
+                        SetWindowTextW(PC(ID_P_EDIT1), result->exePath.c_str());
+                } else if (onPage) {
                     MessageBoxW(m_hwnd,
                         L"Download and extraction succeeded, but the executable was not found "
                         L"inside the archive. Check the emulators folder manually.",
                         L"Executable not found", MB_OK | MB_ICONWARNING);
+                }
 
                 if (!result->tag.empty()) {
                     SaveTagForPage(page, result->tag);
-                    SetVersionLabel(result->tag, result->tag);
+                    // Keep NES and SNES tags in sync (both use Mesen2)
+                    if (page == PAGE_NES) {
+                        m_work.emulators.snesTag = result->tag;
+                        m_cfg->emulators.snesTag = result->tag;
+                    } else if (page == PAGE_SNES) {
+                        m_work.emulators.nesTag = result->tag;
+                        m_cfg->emulators.nesTag = result->tag;
+                    }
+                    if (onPage)
+                        SetVersionLabel(result->tag, result->tag);
                 }
             }
         }
@@ -856,6 +876,11 @@ void SettingsWindow::SaveN64Page() {
 
 void SettingsWindow::LoadNesPage() {
     auto& e = m_work.emulators;
+    // Mesen2 handles both NES and SNES — if NES path is unset but SNES has the exe, inherit it
+    if (e.nesPath.empty() && !e.snesPath.empty()) {
+        e.nesPath = e.snesPath;
+        if (e.nesTag.empty()) e.nesTag = e.snesTag;
+    }
     Chk(PC(ID_P_CHK1), e.nesEnabled);
     SetWindowTextW(PC(ID_P_EDIT1), e.nesPath.c_str());
     VecToList(PC(ID_P_LIST1), e.nesRomDirs);
@@ -871,6 +896,11 @@ void SettingsWindow::SaveNesPage() {
 
 void SettingsWindow::LoadSnesPage() {
     auto& e = m_work.emulators;
+    // Mesen2 handles both NES and SNES — if SNES path is unset but NES has the exe, inherit it
+    if (e.snesPath.empty() && !e.nesPath.empty()) {
+        e.snesPath = e.nesPath;
+        if (e.snesTag.empty()) e.snesTag = e.nesTag;
+    }
     Chk(PC(ID_P_CHK1), e.snesEnabled);
     SetWindowTextW(PC(ID_P_EDIT1), e.snesPath.c_str());
     VecToList(PC(ID_P_LIST1), e.snesRomDirs);
@@ -1151,6 +1181,31 @@ void SettingsWindow::SaveTagForPage(int page, const std::wstring& tag) {
     case PAGE_N64:      ew.n64Tag     = ec.n64Tag     = tag; break;
     case PAGE_NES:      ew.nesTag     = ec.nesTag     = tag; break;
     case PAGE_SNES:     ew.snesTag    = ec.snesTag    = tag; break;
+    }
+}
+
+// Sets the emulator exe path in both m_work and m_cfg for the given page.
+// For PAGE_NES and PAGE_SNES the sibling is also updated because both use Mesen2.
+void SettingsWindow::SetPathForPage(int page, const std::wstring& exePath) {
+    auto& ew = m_work.emulators;
+    auto& ec = m_cfg->emulators;
+    switch (page) {
+    case PAGE_DOLPHIN:
+        ew.dolphinPath = ec.dolphinPath = exePath; break;
+    case PAGE_RYUJINX:
+        ew.ryujinxPath = ec.ryujinxPath = exePath; break;
+    case PAGE_RPCS3:
+        ew.rpcs3Path   = ec.rpcs3Path   = exePath; break;
+    case PAGE_N64:
+        ew.n64Path     = ec.n64Path     = exePath; break;
+    case PAGE_NES:
+        ew.nesPath = ec.nesPath = exePath;
+        ew.snesPath = ec.snesPath = exePath;  // same Mesen2 exe
+        break;
+    case PAGE_SNES:
+        ew.snesPath = ec.snesPath = exePath;
+        ew.nesPath  = ec.nesPath  = exePath;  // same Mesen2 exe
+        break;
     }
 }
 

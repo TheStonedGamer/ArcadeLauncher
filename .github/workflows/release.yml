@@ -1,8 +1,9 @@
 name: Release
 
-# Fires on every push to main AND on version tags pushed by promote.yml.
-# In both cases the version is read from src/Version.h so the release tag
-# is always correct regardless of how the workflow was triggered.
+# Fires on every push to main (and on version tags for manual overrides).
+# Automatically bumps the minor version on each push to main, unless the
+# commit message contains [major] (bumps major) or the push was made by
+# github-actions[bot] (version bump commit — skip to avoid infinite loop).
 on:
   push:
     branches: [main]
@@ -10,7 +11,7 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
-  contents: write   # needed to create GitHub Releases and upload assets
+  contents: write
 
 jobs:
   build:
@@ -21,23 +22,67 @@ jobs:
       # ── 1. Source ─────────────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history to push the version bump commit
 
-      # ── 2. Derive version from Version.h ─────────────────────────────────────
-      - name: Read version
+      # ── 2. Configure git identity ─────────────────────────────────────────────
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ── 3. Bump version (branch pushes only, not bot commits or tag pushes) ───
+      - name: Bump version
         id: ver
         shell: pwsh
         run: |
-          $txt   = Get-Content src\Version.h -Raw
-          $major = [regex]::Match($txt, '#define ARCADE_VERSION_MAJOR\s+(\d+)').Groups[1].Value
-          $minor = [regex]::Match($txt, '#define ARCADE_VERSION_MINOR\s+(\d+)').Groups[1].Value
-          $patch = [regex]::Match($txt, '#define ARCADE_VERSION_PATCH\s+(\d+)').Groups[1].Value
-          $ver   = "$major.$minor.$patch"
-          $tag   = "v$ver"
-          Write-Host "Version: $ver   Tag: $tag"
+          # If this push was the bot's own version-bump commit, skip bumping
+          # (GITHUB_TOKEN pushes don't retrigger workflows, but tag-triggered
+          # runs land here too and should also skip the bump).
+          $author  = git log -1 --format='%an'
+          $isTag   = '${{ github.ref_type }}' -eq 'tag'
+          $isBot   = $author -eq 'github-actions[bot]'
+
+          $txt     = Get-Content src\Version.h -Raw
+          $major   = [int][regex]::Match($txt, '#define ARCADE_VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor   = [int][regex]::Match($txt, '#define ARCADE_VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch   = [int][regex]::Match($txt, '#define ARCADE_VERSION_PATCH\s+(\d+)').Groups[1].Value
+
+          Write-Host "Current version : $major.$minor.$patch"
+          Write-Host "Triggered by tag: $isTag   Bot commit: $isBot"
+
+          if (-not $isTag -and -not $isBot) {
+            # Determine bump type from commit message
+            $msg = git log -1 --format='%s'
+            Write-Host "Commit message  : $msg"
+            if ($msg -match '\[major\]') {
+              $major++; $minor = 0; $patch = 0
+              Write-Host "Bump type       : MAJOR"
+            } else {
+              $minor++; $patch = 0
+              Write-Host "Bump type       : MINOR"
+            }
+
+            # Rewrite Version.h
+            $txt = $txt -replace '(#define ARCADE_VERSION_MAJOR\s+)\d+', "`${1}$major"
+            $txt = $txt -replace '(#define ARCADE_VERSION_MINOR\s+)\d+', "`${1}$minor"
+            $txt = $txt -replace '(#define ARCADE_VERSION_PATCH\s+)\d+', "`${1}$patch"
+            $txt = $txt -replace '(#define ARCADE_VERSION_BUILD\s+)\d+', "`${1}0"
+            Set-Content src\Version.h $txt -NoNewline
+
+            # Commit and push — GITHUB_TOKEN commits do NOT retrigger workflows
+            git add src/Version.h
+            git commit -m "chore: bump version to $major.$minor.$patch [skip actions]"
+            git push origin main
+          }
+
+          $ver = "$major.$minor.$patch"
+          $tag = "v$ver"
+          Write-Host "Release version : $ver   Tag: $tag"
           "VERSION=$ver" >> $env:GITHUB_OUTPUT
           "TAG=$tag"     >> $env:GITHUB_OUTPUT
 
-      # ── 3. Build toolchain ────────────────────────────────────────────────────
+      # ── 4. Build toolchain ────────────────────────────────────────────────────
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v2
 
@@ -51,7 +96,7 @@ jobs:
           dotnet tool install --global wix --version 4.0.5
           wix extension add WixToolset.UI.wixext/4.0.5 --global
 
-      # ── 4. Compile (Release|x64) ──────────────────────────────────────────────
+      # ── 5. Compile (Release|x64) ──────────────────────────────────────────────
       - name: Build Release
         run: |
           msbuild GameLauncher.sln `
@@ -60,7 +105,7 @@ jobs:
             /m /nologo `
             /p:TreatWarningsAsErrors=false
 
-      # ── 5. Package MSI ────────────────────────────────────────────────────────
+      # ── 6. Package MSI ────────────────────────────────────────────────────────
       - name: Create dist directory
         run: New-Item -ItemType Directory -Force dist
 
@@ -73,7 +118,7 @@ jobs:
             -out "dist\ArcadeLauncher-x64.msi" `
             -arch x64
 
-      # ── 6. Collect artifacts ──────────────────────────────────────────────────
+      # ── 7. Collect artifacts ──────────────────────────────────────────────────
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -82,7 +127,7 @@ jobs:
             dist\ArcadeLauncher-x64.msi
             bin\Release\ArcadeLauncher.exe
 
-      # ── 7. Create / update GitHub Release ────────────────────────────────────
+      # ── 8. Create / update GitHub Release ────────────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

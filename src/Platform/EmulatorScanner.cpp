@@ -103,11 +103,25 @@ std::vector<Game> EmulatorScanner::Scan() {
 
             Game g;
             g.id           = PlatformName(m_cfg.platform) + L"_" + fname;
-            g.title        = title;
             g.platform     = m_cfg.platform;
             g.emulatorPath = m_cfg.emulatorPath;
             g.romPath      = romPath;
             g.arguments    = args;
+
+            // Enhance with ROM database: canonical title + pre-mapped IGDB ID
+            if (m_cfg.romDb) {
+                const auto* info = m_cfg.romDb->Lookup(m_cfg.platform, title);
+                if (info) {
+                    g.title      = info->title;
+                    g.igdbId     = info->igdbId;
+                    g.igdbMatched = (info->igdbId > 0);
+                } else {
+                    g.title = title;
+                }
+            } else {
+                g.title = title;
+            }
+
             games.push_back(std::move(g));
 
         } while (FindNextFileW(h, &fd));

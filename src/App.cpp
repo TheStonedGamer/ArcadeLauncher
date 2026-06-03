@@ -126,6 +126,21 @@ bool App::Initialize(HINSTANCE hInstance, bool startInTray) {
     // Kick off initial scan in background
     std::thread([this]() { ScanAllPlatforms(); }).detach();
 
+    // Load ROM database from cache (or download it in the background if missing)
+    {
+        std::wstring dbPath = GetAppDataPath() + L"\\romdb.json";
+        if (GetFileAttributesW(dbPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            m_romDb.Load(dbPath);  // already cached — load synchronously (fast)
+        } else {
+            // Download in background; rescan when done so titles are enhanced
+            std::thread([this, dbPath]() {
+                if (RomDatabase::Download(dbPath)) {
+                    PostMessageW(m_hwnd, WM_ROMDB_READY, 0, 0);
+                }
+            }).detach();
+        }
+    }
+
     // Check for a newer release on GitHub (silent — only fires WM_APP_UPDATE_FOUND if one exists)
     CheckForAppUpdateAsync(m_hwnd);
 
@@ -173,6 +188,15 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         break;
+
+    case WM_ROMDB_READY: {
+        // ROM database finished downloading — load it and rescan so titles
+        // are enhanced immediately without requiring a launcher restart.
+        std::wstring dbPath = GetAppDataPath() + L"\\romdb.json";
+        if (m_romDb.Load(dbPath))
+            std::thread([this]() { ScanAllPlatforms(); }).detach();
+        return 0;
+    }
 
     case WM_GAME_CLOSED:
         // A launched game just exited — restore the launcher to the front.
@@ -848,6 +872,7 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.ryujinxArgs.empty() ? L"{rom}" : emu.ryujinxArgs;
         rc.romDirs      = emu.ryujinxRomDirs;
         rc.extensions   = { L"nsp", L"xci", L"nca", L"nro" };
+        rc.romDb = m_romDb.IsLoaded() ? &m_romDb : nullptr;
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
@@ -858,6 +883,7 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.rpcs3Args.empty() ? L"--no-gui {rom}" : emu.rpcs3Args;
         rc.romDirs      = emu.rpcs3RomDirs;
         rc.extensions   = { L"iso", L"pkg", L"bin", L"ps3" };
+        rc.romDb = m_romDb.IsLoaded() ? &m_romDb : nullptr;
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
@@ -868,6 +894,7 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.n64Args.empty() ? L"{rom}" : emu.n64Args;
         rc.romDirs      = emu.n64RomDirs;
         rc.extensions   = { L"z64", L"n64", L"v64", L"rom" };
+        rc.romDb = m_romDb.IsLoaded() ? &m_romDb : nullptr;
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
@@ -878,6 +905,7 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.nesArgs.empty() ? L"{rom}" : emu.nesArgs;
         rc.romDirs      = emu.nesRomDirs;
         rc.extensions   = { L"nes", L"fds", L"unf", L"unif" };
+        rc.romDb = m_romDb.IsLoaded() ? &m_romDb : nullptr;
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
@@ -888,6 +916,7 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.snesArgs.empty() ? L"{rom}" : emu.snesArgs;
         rc.romDirs      = emu.snesRomDirs;
         rc.extensions   = { L"sfc", L"smc", L"fig", L"bs", L"st", L"zip" };
+        rc.romDb = m_romDb.IsLoaded() ? &m_romDb : nullptr;
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
@@ -898,6 +927,7 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.duckstationArgs.empty() ? L"-batch {rom}" : emu.duckstationArgs;
         rc.romDirs      = emu.duckstationRomDirs;
         rc.extensions   = { L"bin", L"cue", L"iso", L"img", L"chd", L"pbp", L"mdf", L"m3u" };
+        rc.romDb = m_romDb.IsLoaded() ? &m_romDb : nullptr;
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
@@ -908,6 +938,7 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.pcsx2Args.empty() ? L"--no-gui {rom}" : emu.pcsx2Args;
         rc.romDirs      = emu.pcsx2RomDirs;
         rc.extensions   = { L"iso", L"bin", L"img", L"mdf", L"nrg", L"chd", L"cso", L"cue" };
+        rc.romDb = m_romDb.IsLoaded() ? &m_romDb : nullptr;
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
@@ -918,6 +949,7 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.xeniaArgs.empty() ? L"{rom}" : emu.xeniaArgs;
         rc.romDirs      = emu.xeniaRomDirs;
         rc.extensions   = { L"xex", L"iso" };
+        rc.romDb = m_romDb.IsLoaded() ? &m_romDb : nullptr;
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
@@ -928,6 +960,7 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.xemuArgs.empty() ? L"{rom}" : emu.xemuArgs;
         rc.romDirs      = emu.xemuRomDirs;
         rc.extensions   = { L"iso", L"xbe" };
+        rc.romDb = m_romDb.IsLoaded() ? &m_romDb : nullptr;
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 

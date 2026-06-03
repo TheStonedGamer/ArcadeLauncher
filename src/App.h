@@ -13,6 +13,7 @@
 #include "GameEditDialog.h"
 #include "FirstLaunchSetup.h"
 #include "AppUpdater.h"
+#include "RomDatabase.h"
 
 class App {
 public:
@@ -81,6 +82,7 @@ private:
     EmulatorSetupWindow               m_setup;
     MetadataPickerDialog              m_picker;
 
+    RomDatabase      m_romDb;
     RenderState      m_renderState;
     std::vector<const Game*> m_visibleGames;
 
@@ -101,6 +103,7 @@ private:
     // Window messages
     static constexpr UINT WM_TRAYICON    = WM_USER + 100;
     static constexpr UINT WM_GAME_CLOSED = WM_USER + 101;
+    static constexpr UINT WM_ROMDB_READY = WM_USER + 102;
 
     // Context menu command IDs
     static constexpr UINT IDM_LAUNCH      = 5001;

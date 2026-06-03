@@ -1,5 +1,6 @@
 #pragma once
 #include "Scanner.h"
+#include "../RomDatabase.h"
 
 struct EmulatorRomConfig {
     std::wstring emulatorPath;
@@ -7,6 +8,7 @@ struct EmulatorRomConfig {
     std::vector<std::wstring> romDirs;
     std::vector<std::wstring> extensions;
     Platform platform;
+    const RomDatabase* romDb = nullptr;  // optional; enhances titles when set
 };
 
 class EmulatorScanner : public IScanner {

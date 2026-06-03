@@ -1006,7 +1006,7 @@ void SettingsWindow::HandlePageCommand(int id) {
             EnableWindow(PC(ID_P_BTN5), FALSE);
             SetWindowTextW(PC(ID_P_BTN5), L"Downloading…");
             DownloadEmulatorAsync(m_hwnd, PAGE_NES,
-                { "SourMesen/Mesen2", L"windows", L"Mesen.exe", L"mesen2" },
+                { "SourMesen/Mesen2", L"mesen.zip", L"Mesen.exe", L"mesen2" },
                 GetAppDataPath());
         }
         break;
@@ -1022,7 +1022,7 @@ void SettingsWindow::HandlePageCommand(int id) {
             EnableWindow(PC(ID_P_BTN5), FALSE);
             SetWindowTextW(PC(ID_P_BTN5), L"Downloading…");
             DownloadEmulatorAsync(m_hwnd, PAGE_SNES,
-                { "SourMesen/Mesen2", L"windows", L"Mesen.exe", L"mesen2" },
+                { "SourMesen/Mesen2", L"mesen.zip", L"Mesen.exe", L"mesen2" },
                 GetAppDataPath());
         }
         break;

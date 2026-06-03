@@ -121,7 +121,8 @@ static bool DownloadFile(const std::wstring& url, const std::wstring& destPath) 
 static std::wstring FindAssetUrl(const std::string& json, const std::wstring& pattern) {
     static const std::wstring skipWords[] = {
         L"debug", L"pdb", L"source", L"symbols", L"-src", L"_src",
-        L".sha256", L".sha512", L".sig", L".asc"
+        L".sha256", L".sha512", L".sig", L".asc",
+        L"linux", L"macos", L"osx", L"android"
     };
     const std::string key = "\"browser_download_url\":\"";
     size_t pos = 0;

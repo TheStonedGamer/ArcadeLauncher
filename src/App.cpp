@@ -211,6 +211,14 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
 
+    case WM_USER + 1:
+        // Scan complete — update sidebar visibility flags, rebuild visible list,
+        // and repaint. This runs on the main thread (safe to touch render state).
+        UpdateSidebarFlags();
+        ApplyFilter();
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return 0;
+
     case WM_USER + 3:
         // Background thread finished downloading the Repacks/FitGirl icon.
         // Create the D2D bitmap here on the render thread.
@@ -821,12 +829,9 @@ void App::ScanAllPlatforms() {
         }
     }
 
-    UpdateSidebarFlags();
-
-    // Refresh visible list on main thread
+    // Hand all UI updates back to the main thread — never touch m_renderState or
+    // m_visibleGames from this background thread.
     PostMessageW(m_hwnd, WM_USER + 1, 0, 0);
-    ApplyFilter();
-    InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
 void App::LaunchGame(const Game& game) {

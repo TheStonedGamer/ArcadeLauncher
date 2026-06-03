@@ -114,6 +114,9 @@ bool App::Initialize(HINSTANCE hInstance) {
     // Kick off initial scan in background
     std::thread([this]() { ScanAllPlatforms(); }).detach();
 
+    // Check for a newer release on GitHub (silent — only fires WM_APP_UPDATE_FOUND if one exists)
+    CheckForAppUpdateAsync(m_hwnd);
+
     // Timers
     SetTimer(m_hwnd, TIMER_ANIM,    16,  nullptr); // ~60fps
     SetTimer(m_hwnd, TIMER_SAVE, 30000,  nullptr); // autosave every 30s
@@ -239,6 +242,36 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
         return 0;
     }
+
+    case WM_APP_UPDATE_FOUND: {
+        // Background thread found a newer release. Prompt the user.
+        auto* info = reinterpret_cast<AppUpdateInfo*>(lp);
+        std::wstring msg =
+            L"ArcadeLauncher " + info->tag + L" is available!\n\n"
+            L"Download and install now?\n"
+            L"The app will close automatically once the installer is ready.";
+        int choice = MessageBoxW(hwnd, msg.c_str(),
+                                 L"Update Available",
+                                 MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON1);
+        if (choice == IDYES)
+            DownloadAndInstallAsync(m_hwnd, info->msiUrl);
+        delete info;
+        return 0;
+    }
+
+    case WM_APP_UPDATE_READY:
+        if (wp == 1) {
+            // Download failed
+            MessageBoxW(hwnd,
+                L"The update could not be downloaded.\n\n"
+                L"Please visit github.com/TheStonedGamer/ArcadeLauncher/releases to update manually.",
+                L"Update Failed", MB_OK | MB_ICONWARNING);
+        } else {
+            // msiexec is running — close the launcher so the installer can replace files
+            SaveAll();
+            DestroyWindow(m_hwnd);
+        }
+        return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
@@ -957,12 +990,19 @@ void App::OnRButtonDown(float x, float y) {
     m_renderState.selectedIndex = idx;
     InvalidateRect(m_hwnd, nullptr, FALSE);
 
+    const Game* hoveredGame = m_visibleGames[idx];
+    bool hasRomFile = !hoveredGame->romPath.empty();
+
     HMENU menu = CreatePopupMenu();
     AppendMenuW(menu, MF_STRING, IDM_LAUNCH, L"Launch");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, IDM_EDIT_TITLE, L"Edit Title…");
     UINT matchFlags = MF_STRING | (m_metaManager ? 0 : MF_GRAYED);
     AppendMenuW(menu, matchFlags, IDM_MATCH_META, L"Match Metadata…");
+    if (hasRomFile) {
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, IDM_DELETE_ROM, L"Delete ROM File…");
+    }
 
     if (m_monitor.IsRunning())
         EnableMenuItem(menu, IDM_LAUNCH, MF_BYCOMMAND | MF_GRAYED);
@@ -981,6 +1021,8 @@ void App::OnRButtonDown(float x, float y) {
     } else if (cmd == IDM_MATCH_META) {
         if (idx < (int)m_visibleGames.size())
             OpenMetadataPicker(m_visibleGames[idx]->id, m_visibleGames[idx]->title);
+    } else if (cmd == IDM_DELETE_ROM) {
+        DeleteRom(idx);
     }
 }
 
@@ -1046,6 +1088,34 @@ void App::OpenEditTitle(int visibleIdx) {
             });
     }
 
+    ApplyFilter();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void App::DeleteRom(int visibleIdx) {
+    if (visibleIdx < 0 || visibleIdx >= (int)m_visibleGames.size()) return;
+    const Game* cv = m_visibleGames[visibleIdx];
+    Game* g = m_library.FindById(cv->id);
+    if (!g || g->romPath.empty()) return;
+
+    std::wstring prompt =
+        L"Permanently delete this ROM file from disk?\n\n" + g->romPath;
+    if (MessageBoxW(m_hwnd, prompt.c_str(), L"Delete ROM",
+                    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+        return;
+
+    if (!DeleteFileW(g->romPath.c_str())) {
+        wchar_t err[300];
+        swprintf_s(err, L"Could not delete file (error %lu):\n%s",
+                   GetLastError(), g->romPath.c_str());
+        MessageBoxW(m_hwnd, err, L"Delete Failed", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    std::wstring id = g->id;
+    m_renderer.UnloadGameArt(id);
+    m_library.RemoveGame(id);
+    SaveAll();
     ApplyFilter();
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }

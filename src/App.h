@@ -12,6 +12,7 @@
 #include "MetadataPickerDialog.h"
 #include "GameEditDialog.h"
 #include "FirstLaunchSetup.h"
+#include "AppUpdater.h"
 
 class App {
 public:
@@ -48,6 +49,7 @@ private:
     void OpenSettings();
     void OpenMetadataPicker(const std::wstring& gameId, const std::wstring& gameTitle);
     void OpenEditTitle(int visibleIdx);
+    void DeleteRom(int visibleIdx);
     void ShowMenuBar();
 
     void SaveAll();
@@ -88,6 +90,7 @@ private:
     static constexpr UINT IDM_LAUNCH      = 5001;
     static constexpr UINT IDM_MATCH_META  = 5002;
     static constexpr UINT IDM_EDIT_TITLE  = 5003;
+    static constexpr UINT IDM_DELETE_ROM  = 5004;
 
     // Tools menu command IDs
     static constexpr UINT IDM_TOOL_DOLPHIN = 6001;

@@ -1069,36 +1069,6 @@ void App::OnRButtonDown(float x, float y) {
     } else if (cmd == IDM_DELETE_ROM) {
         DeleteRom(idx);
     }
-
-    // ── Tray menu commands ────────────────────────────────────────────────────
-    switch (cmd) {
-    case IDM_TRAY_SHOW:
-        ShowWindow_(IsWindowVisible(m_hwnd) == FALSE);
-        break;
-    case IDM_TRAY_SETTINGS:
-        ShowWindow_(true);
-        OpenSettings();
-        break;
-    case IDM_TRAY_STARTUP:
-        SetStartup(!IsStartupEnabled());
-        break;
-    case IDM_TRAY_EXIT:
-        RemoveTrayIcon();
-        DestroyWindow(m_hwnd);
-        break;
-    default:
-        if (cmd >= IDM_TRAY_GAME0 && cmd < IDM_TRAY_GAME0 + 10) {
-            int ri = (int)(cmd - IDM_TRAY_GAME0);
-            if (ri < (int)m_trayRecentIds.size()) {
-                const Game* g = m_library.FindById(m_trayRecentIds[ri]);
-                if (g) {
-                    ShowWindow_(true);
-                    LaunchGame(*g);
-                }
-            }
-        }
-        break;
-    }
 }
 
 void App::OpenEditTitle(int visibleIdx) {
@@ -1383,7 +1353,33 @@ void App::ShowTrayMenu() {
     GetCursorPos(&pt);
     // SetForegroundWindow is required so the menu dismisses on click-away.
     SetForegroundWindow(m_hwnd);
-    TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
-                     pt.x, pt.y, m_hwnd, nullptr);
+    // TPM_RETURNCMD: get the selection back directly instead of via WM_COMMAND,
+    // which has no handler in the main window proc.
+    UINT cmd = (UINT)TrackPopupMenuEx(menu,
+        TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
+        pt.x, pt.y, m_hwnd, nullptr);
     DestroyMenu(menu);
+
+    switch (cmd) {
+    case IDM_TRAY_SHOW:
+        ShowWindow_(IsWindowVisible(m_hwnd) == FALSE);
+        break;
+    case IDM_TRAY_SETTINGS:
+        ShowWindow_(true);
+        OpenSettings();
+        break;
+    case IDM_TRAY_EXIT:
+        RemoveTrayIcon();
+        DestroyWindow(m_hwnd);
+        break;
+    default:
+        if (cmd >= IDM_TRAY_GAME0 && cmd < IDM_TRAY_GAME0 + 10) {
+            int ri = (int)(cmd - IDM_TRAY_GAME0);
+            if (ri < (int)m_trayRecentIds.size()) {
+                const Game* g = m_library.FindById(m_trayRecentIds[ri]);
+                if (g) { ShowWindow_(true); LaunchGame(*g); }
+            }
+        }
+        break;
+    }
 }

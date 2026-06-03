@@ -764,7 +764,7 @@ void App::ScanAllPlatforms() {
     if (lib.gogEnabled)
         scanners.push_back(std::make_unique<GogScanner>());
 
-    if (emu.dolphinEnabled && !emu.dolphinPath.empty()) {
+    if (!emu.dolphinPath.empty()) {
         EmulatorRomConfig dc;
         dc.platform     = Platform::Dolphin;
         dc.emulatorPath = emu.dolphinPath;
@@ -775,7 +775,7 @@ void App::ScanAllPlatforms() {
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(dc)));
     }
 
-    if (emu.ryujinxEnabled && !emu.ryujinxPath.empty()) {
+    if (!emu.ryujinxPath.empty()) {
         EmulatorRomConfig rc;
         rc.platform     = Platform::Ryujinx;
         rc.emulatorPath = emu.ryujinxPath;
@@ -785,7 +785,7 @@ void App::ScanAllPlatforms() {
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
-    if (emu.rpcs3Enabled && !emu.rpcs3Path.empty()) {
+    if (!emu.rpcs3Path.empty()) {
         EmulatorRomConfig rc;
         rc.platform     = Platform::RPCS3;
         rc.emulatorPath = emu.rpcs3Path;
@@ -795,7 +795,7 @@ void App::ScanAllPlatforms() {
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
-    if (emu.n64Enabled && !emu.n64Path.empty()) {
+    if (!emu.n64Path.empty()) {
         EmulatorRomConfig rc;
         rc.platform     = Platform::N64;
         rc.emulatorPath = emu.n64Path;
@@ -805,7 +805,7 @@ void App::ScanAllPlatforms() {
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
-    if (emu.nesEnabled && !emu.nesPath.empty()) {
+    if (!emu.nesPath.empty()) {
         EmulatorRomConfig rc;
         rc.platform     = Platform::NES;
         rc.emulatorPath = emu.nesPath;
@@ -815,7 +815,7 @@ void App::ScanAllPlatforms() {
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
-    if (emu.snesEnabled && !emu.snesPath.empty()) {
+    if (!emu.snesPath.empty()) {
         EmulatorRomConfig rc;
         rc.platform     = Platform::SNES;
         rc.emulatorPath = emu.snesPath;
@@ -968,12 +968,12 @@ void App::UpdateSidebarFlags() {
     m_renderState.showSteam   = lib.steamEnabled;
     m_renderState.showEpic    = lib.epicEnabled;
     m_renderState.showGog     = lib.gogEnabled;
-    m_renderState.showDolphin = emu.dolphinEnabled;
-    m_renderState.showRyujinx = emu.ryujinxEnabled;
-    m_renderState.showRPCS3   = emu.rpcs3Enabled;
-    m_renderState.showN64     = emu.n64Enabled;
-    m_renderState.showNES     = emu.nesEnabled;
-    m_renderState.showSNES    = emu.snesEnabled;
+    m_renderState.showDolphin = true;
+    m_renderState.showRyujinx = true;
+    m_renderState.showRPCS3   = true;
+    m_renderState.showN64     = true;
+    m_renderState.showNES     = true;
+    m_renderState.showSNES    = true;
     m_renderState.showRepacks = std::any_of(lib.customLibraries.begin(),
         lib.customLibraries.end(), [](const CustomLibraryConfig& cl) { return cl.enabled; });
     int count = Renderer::GetSidebarEntryCount(m_renderState);

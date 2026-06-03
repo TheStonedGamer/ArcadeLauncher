@@ -20,13 +20,6 @@ struct LibraryConfig {
 };
 
 struct EmulatorConfig {
-    bool dolphinEnabled  = true;
-    bool ryujinxEnabled  = true;
-    bool rpcs3Enabled    = true;
-    bool n64Enabled      = true;
-    bool nesEnabled      = true;
-    bool snesEnabled     = true;
-
     std::wstring dolphinPath;
     std::wstring ryujinxPath;
     std::wstring rpcs3Path;

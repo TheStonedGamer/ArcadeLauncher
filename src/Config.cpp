@@ -128,12 +128,6 @@ void Config::Save(const std::wstring& path) const {
         out += writeArr(cl.dirs, "customLib" + idx + "Dirs")             + ",\n";
     }
     // Emulator settings
-    out += "  \"dolphinEnabled\":" + B(e.dolphinEnabled) + ",\n";
-    out += "  \"ryujinxEnabled\":" + B(e.ryujinxEnabled) + ",\n";
-    out += "  \"rpcs3Enabled\":"   + B(e.rpcs3Enabled)   + ",\n";
-    out += "  \"n64Enabled\":"     + B(e.n64Enabled)     + ",\n";
-    out += "  \"nesEnabled\":"     + B(e.nesEnabled)      + ",\n";
-    out += "  \"snesEnabled\":"    + B(e.snesEnabled)     + ",\n";
     out += "  \"dolphinPath\":\"" + Escape(e.dolphinPath) + "\",\n";
     out += "  \"ryujinxPath\":\"" + Escape(e.ryujinxPath) + "\",\n";
     out += "  \"rpcs3Path\":\""   + Escape(e.rpcs3Path)   + "\",\n";
@@ -231,12 +225,6 @@ void Config::Load(const std::wstring& path) {
         }
     }
 
-    m_cfg.emulators.dolphinEnabled  = readBoolDefault("dolphinEnabled", true);
-    m_cfg.emulators.ryujinxEnabled  = readBoolDefault("ryujinxEnabled", true);
-    m_cfg.emulators.rpcs3Enabled    = readBoolDefault("rpcs3Enabled",   true);
-    m_cfg.emulators.n64Enabled      = readBoolDefault("n64Enabled",     true);
-    m_cfg.emulators.nesEnabled      = readBoolDefault("nesEnabled",      true);
-    m_cfg.emulators.snesEnabled     = readBoolDefault("snesEnabled",     true);
     m_cfg.emulators.dolphinPath    = ToWide(ReadField(json, "dolphinPath"));
     m_cfg.emulators.ryujinxPath    = ToWide(ReadField(json, "ryujinxPath"));
     m_cfg.emulators.rpcs3Path      = ToWide(ReadField(json, "rpcs3Path"));

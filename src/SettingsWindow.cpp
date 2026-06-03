@@ -587,10 +587,6 @@ void SettingsWindow::BuildGogPage() {
 void SettingsWindow::BuildDolphinPage() {
     int y = PageHeader(m_hwnd, m_pageControls, L"Dolphin");
 
-    AddPC(Check(m_hwnd, L"Enable Dolphin emulator  (uncheck to hide from sidebar and skip scanning)",
-                ID_P_CHK1, K_CX, y, K_CW));
-    y += 30;
-
     AddPC(Group(m_hwnd, L" Executable ", K_CX, y, K_CW, 124));
     AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
     AddPC(Edit (m_hwnd, ID_P_EDIT1, K_CX + 58, y + 20, K_BX - K_CX - 64));
@@ -615,9 +611,6 @@ void SettingsWindow::BuildDolphinPage() {
 void SettingsWindow::BuildRyujinxPage() {
     int y = PageHeader(m_hwnd, m_pageControls, L"Ryujinx");
 
-    AddPC(Check(m_hwnd, L"Enable Ryujinx emulator  (uncheck to hide from sidebar and skip scanning)",
-                ID_P_CHK1, K_CX, y, K_CW));
-    y += 30;
 
     AddPC(Group(m_hwnd, L" Executable ", K_CX, y, K_CW, 100));
     AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
@@ -642,9 +635,6 @@ void SettingsWindow::BuildRyujinxPage() {
 void SettingsWindow::BuildRpcs3Page() {
     int y = PageHeader(m_hwnd, m_pageControls, L"RPCS3");
 
-    AddPC(Check(m_hwnd, L"Enable RPCS3 emulator  (uncheck to hide from sidebar and skip scanning)",
-                ID_P_CHK1, K_CX, y, K_CW));
-    y += 30;
 
     AddPC(Group(m_hwnd, L" Executable ", K_CX, y, K_CW, 100));
     AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
@@ -667,9 +657,6 @@ void SettingsWindow::BuildRpcs3Page() {
 void SettingsWindow::BuildN64Page() {
     int y = PageHeader(m_hwnd, m_pageControls, L"N64 Emulator");
 
-    AddPC(Check(m_hwnd, L"Enable N64 emulator  (uncheck to hide from sidebar and skip scanning)",
-                ID_P_CHK1, K_CX, y, K_CW));
-    y += 30;
 
     AddPC(Group(m_hwnd, L" Executable ", K_CX, y, K_CW, 168));
     AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
@@ -698,9 +685,6 @@ void SettingsWindow::BuildN64Page() {
 void SettingsWindow::BuildNesPage() {
     int y = PageHeader(m_hwnd, m_pageControls, L"NES Emulator");
 
-    AddPC(Check(m_hwnd, L"Enable NES emulator  (uncheck to hide from sidebar and skip scanning)",
-                ID_P_CHK1, K_CX, y, K_CW));
-    y += 30;
 
     AddPC(Group(m_hwnd, L" Executable ", K_CX, y, K_CW, 136));
     AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
@@ -726,9 +710,6 @@ void SettingsWindow::BuildNesPage() {
 void SettingsWindow::BuildSnesPage() {
     int y = PageHeader(m_hwnd, m_pageControls, L"SNES Emulator");
 
-    AddPC(Check(m_hwnd, L"Enable SNES emulator  (uncheck to hide from sidebar and skip scanning)",
-                ID_P_CHK1, K_CX, y, K_CW));
-    y += 30;
 
     AddPC(Group(m_hwnd, L" Executable ", K_CX, y, K_CW, 136));
     AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
@@ -820,35 +801,30 @@ void SettingsWindow::SaveGogPage() {
 
 void SettingsWindow::LoadDolphinPage() {
     auto& e = m_work.emulators;
-    Chk(PC(ID_P_CHK1), e.dolphinEnabled);
     SetWindowTextW(PC(ID_P_EDIT1), e.dolphinPath.c_str());
     VecToList(PC(ID_P_LIST1), e.dolphinRomDirs);
     SetWindowTextW(PC(ID_P_STAT1), L"Builds available at dolphin-emu.org/download");
 }
 void SettingsWindow::SaveDolphinPage() {
     auto& e = m_work.emulators;
-    e.dolphinEnabled = IsChk(PC(ID_P_CHK1));
     e.dolphinPath    = GetTxt(PC(ID_P_EDIT1));
     ListToVec(PC(ID_P_LIST1), e.dolphinRomDirs);
 }
 
 void SettingsWindow::LoadRyujinxPage() {
     auto& e = m_work.emulators;
-    Chk(PC(ID_P_CHK1), e.ryujinxEnabled);
     SetWindowTextW(PC(ID_P_EDIT1), e.ryujinxPath.c_str());
     VecToList(PC(ID_P_LIST1), e.ryujinxRomDirs);
     SetWindowTextW(PC(ID_P_STAT1), L"Project discontinued Oct 2024 \x2014 no new versions available.");
 }
 void SettingsWindow::SaveRyujinxPage() {
     auto& e = m_work.emulators;
-    e.ryujinxEnabled = IsChk(PC(ID_P_CHK1));
     e.ryujinxPath    = GetTxt(PC(ID_P_EDIT1));
     ListToVec(PC(ID_P_LIST1), e.ryujinxRomDirs);
 }
 
 void SettingsWindow::LoadRpcs3Page() {
     auto& e = m_work.emulators;
-    Chk(PC(ID_P_CHK1), e.rpcs3Enabled);
     SetWindowTextW(PC(ID_P_EDIT1), e.rpcs3Path.c_str());
     VecToList(PC(ID_P_LIST1), e.rpcs3RomDirs);
     SetVersionLabel(e.rpcs3Tag, {});
@@ -856,14 +832,12 @@ void SettingsWindow::LoadRpcs3Page() {
 }
 void SettingsWindow::SaveRpcs3Page() {
     auto& e = m_work.emulators;
-    e.rpcs3Enabled = IsChk(PC(ID_P_CHK1));
     e.rpcs3Path    = GetTxt(PC(ID_P_EDIT1));
     ListToVec(PC(ID_P_LIST1), e.rpcs3RomDirs);
 }
 
 void SettingsWindow::LoadN64Page() {
     auto& e = m_work.emulators;
-    Chk(PC(ID_P_CHK1), e.n64Enabled);
     SetWindowTextW(PC(ID_P_EDIT1), e.n64Path.c_str());
     VecToList(PC(ID_P_LIST1), e.n64RomDirs);
     SetVersionLabel(e.n64Tag, {});
@@ -871,7 +845,6 @@ void SettingsWindow::LoadN64Page() {
 }
 void SettingsWindow::SaveN64Page() {
     auto& e = m_work.emulators;
-    e.n64Enabled = IsChk(PC(ID_P_CHK1));
     e.n64Path    = GetTxt(PC(ID_P_EDIT1));
     ListToVec(PC(ID_P_LIST1), e.n64RomDirs);
 }
@@ -883,7 +856,6 @@ void SettingsWindow::LoadNesPage() {
         e.nesPath = e.snesPath;
         if (e.nesTag.empty()) e.nesTag = e.snesTag;
     }
-    Chk(PC(ID_P_CHK1), e.nesEnabled);
     SetWindowTextW(PC(ID_P_EDIT1), e.nesPath.c_str());
     VecToList(PC(ID_P_LIST1), e.nesRomDirs);
     SetVersionLabel(e.nesTag, {});
@@ -891,7 +863,6 @@ void SettingsWindow::LoadNesPage() {
 }
 void SettingsWindow::SaveNesPage() {
     auto& e = m_work.emulators;
-    e.nesEnabled = IsChk(PC(ID_P_CHK1));
     e.nesPath    = GetTxt(PC(ID_P_EDIT1));
     ListToVec(PC(ID_P_LIST1), e.nesRomDirs);
 }
@@ -903,7 +874,6 @@ void SettingsWindow::LoadSnesPage() {
         e.snesPath = e.nesPath;
         if (e.snesTag.empty()) e.snesTag = e.nesTag;
     }
-    Chk(PC(ID_P_CHK1), e.snesEnabled);
     SetWindowTextW(PC(ID_P_EDIT1), e.snesPath.c_str());
     VecToList(PC(ID_P_LIST1), e.snesRomDirs);
     SetVersionLabel(e.snesTag, {});
@@ -911,7 +881,6 @@ void SettingsWindow::LoadSnesPage() {
 }
 void SettingsWindow::SaveSnesPage() {
     auto& e = m_work.emulators;
-    e.snesEnabled = IsChk(PC(ID_P_CHK1));
     e.snesPath    = GetTxt(PC(ID_P_EDIT1));
     ListToVec(PC(ID_P_LIST1), e.snesRomDirs);
 }

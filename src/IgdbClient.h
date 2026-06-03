@@ -65,6 +65,8 @@ public:
     bool HasCredentials() const { return !m_clientId.empty() && !m_clientSecret.empty(); }
 
     // Persist/restore token to avoid re-authing every launch
+    std::wstring ClientId()     const { return m_clientId; }
+    std::wstring ClientSecret() const { return m_clientSecret; }
     std::wstring SavedToken()  const { return m_accessToken; }
     int64_t      TokenExpiry() const { return m_tokenExpiry; }
     void RestoreToken(const std::wstring& token, int64_t expiry);

@@ -9,8 +9,7 @@ static constexpr UINT WM_IGDBSYNC_DONE = WM_USER + 60;
 // ── IgdbSync ──────────────────────────────────────────────────────────────────
 //
 // Downloads the complete game catalogue for every emulated platform from
-// IGDB, normalises the titles, and writes romdb.json in the same format
-// that RomDatabase::Load expects.
+// IGDB, normalises the titles, and writes romdb.sqlite for RomDatabase.
 //
 // Normalisation: lowercase + strip everything except a-z, 0-9 and spaces,
 // collapse multiple spaces.  This makes "Super Mario Bros." match
@@ -23,10 +22,10 @@ static constexpr UINT WM_IGDBSYNC_DONE = WM_USER + 60;
 
 class IgdbSync {
 public:
-    // Start a background sync.  Requires IGDB credentials already set on
-    // `client`.  Posts WM_IGDBSYNC_DONE to `hwnd` when done.
+    // Start a background sync using a thread-local IGDB client snapshot.
+    // Posts WM_IGDBSYNC_DONE to `hwnd` when done.
     static void StartAsync(HWND hwnd, IgdbClient& client,
-                           const std::wstring& destPath);
+                           const std::wstring& dbPath);
 
     // Normalise a game title for use as a lookup key:
     //   "Super Mario Bros."   → "super mario bros"
@@ -35,5 +34,5 @@ public:
     static std::wstring Normalise(const std::wstring& title);
 
 private:
-    static void Worker(HWND hwnd, IgdbClient* client, std::wstring destPath);
+    static void Worker(HWND hwnd, IgdbClient client, std::wstring dbPath);
 };

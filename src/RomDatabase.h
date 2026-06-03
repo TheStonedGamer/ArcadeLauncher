@@ -13,22 +13,10 @@
 //
 // Lookup is case-insensitive (keys are stored lowercase).
 //
-// Database format (romdb.json):
-//   {
-//     "v": 1,
-//     "NES": {
-//       "contra":          {"t": "Contra",          "i": 1695},
-//       "super mario bros":{"t": "Super Mario Bros.","i": 1074}
-//     },
-//     "SNES": { ... },
-//     ...
-//   }
-//
-// "t" = canonical title to display in the launcher
-// "i" = IGDB game ID (0 = unknown / not yet mapped)
-//
-// The database file is stored in %AppData%\ArcadeLauncher\romdb.json and can
-// be updated independently of the launcher binary.
+// Backed by %AppData%\ArcadeLauncher\romdb.sqlite. The SQLite table stores:
+//   platform, key, title, igdb_id
+// where key is IgdbSync::Normalise(title). The in-memory map is rebuilt from
+// SQLite on load and used by EmulatorScanner during ROM scans.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class RomDatabase {
@@ -38,8 +26,8 @@ public:
         int64_t      igdbId = 0; // 0 = not mapped
     };
 
-    // Load database from a JSON file. Returns false on failure.
-    bool Load(const std::wstring& jsonPath);
+    // Load database from a SQLite file. Creates the schema if missing.
+    bool Load(const std::wstring& dbPath);
 
     // Lookup a game by platform and stripped ROM title.
     // Returns nullptr if not found.
@@ -47,14 +35,6 @@ public:
 
     bool IsLoaded() const { return !m_db.empty(); }
     int  EntryCount() const;
-
-    // Download the latest romdb.json to destPath.
-    // Returns true if downloaded and written successfully.
-    static bool Download(const std::wstring& destPath);
-
-    // URL for the hosted database file.
-    static constexpr const wchar_t* kDbUrl =
-        L"https://raw.githubusercontent.com/TheStonedGamer/ArcadeLauncher/main/data/romdb.json";
 
 private:
     // (int)Platform → (lowercase_stripped_title → Entry)

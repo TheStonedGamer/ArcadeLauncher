@@ -1,8 +1,6 @@
 #include "pch.h"
 #include "IgdbSync.h"
-#include "Config.h"   // for Escape()
-
-// ── Normalisation ─────────────────────────────────────────────────────────────
+#include "sqlite/sqlite3.h"
 
 std::wstring IgdbSync::Normalise(const std::wstring& title) {
     std::wstring out;
@@ -14,128 +12,131 @@ std::wstring IgdbSync::Normalise(const std::wstring& title) {
             if (!out.empty() && out.back() != L' ')
                 out += L' ';
         }
-        // all other punctuation (.,!?:'") is dropped
     }
     while (!out.empty() && out.back() == L' ')
         out.pop_back();
     return out;
 }
 
-// ── Platform map ──────────────────────────────────────────────────────────────
-
 struct PlatformSync {
-    const char* dbKey;   // key used in romdb.json (matches Platform enum name)
-    int igdbId;          // IGDB platform ID
+    const char* dbKey;
+    int igdbId;
 };
 
 static const PlatformSync kPlatforms[] = {
-    { "NES",    18 },
-    { "SNES",   19 },
-    { "N64",     4 },
-    { "PS1",     7 },
-    { "PS2",     8 },
-    { "Xbox",   11 },
+    { "NES",     18 },
+    { "SNES",    19 },
+    { "N64",      4 },
+    { "PS1",      7 },
+    { "PS2",      8 },
+    { "Xbox",    11 },
     { "Xbox360", 12 },
 };
-static constexpr int kNumPlatforms = (int)(sizeof(kPlatforms)/sizeof(kPlatforms[0]));
 
-// ── JSON writer helpers ───────────────────────────────────────────────────────
-
-static std::string EscapeJson(const std::wstring& s) {
-    std::string u = ToUtf8(s);
-    std::string o;
-    o.reserve(u.size() + 4);
-    for (char c : u) {
-        if      (c == '"')  o += "\\\"";
-        else if (c == '\\') o += "\\\\";
-        else if (c == '\n') o += "\\n";
-        else                o += c;
-    }
-    return o;
+static bool Exec(sqlite3* db, const char* sql) {
+    char* err = nullptr;
+    int rc = sqlite3_exec(db, sql, nullptr, nullptr, &err);
+    if (err) sqlite3_free(err);
+    return rc == SQLITE_OK;
 }
 
-// ── Worker ────────────────────────────────────────────────────────────────────
+static bool BindText(sqlite3_stmt* stmt, int index, const std::string& value) {
+    return sqlite3_bind_text(stmt, index, value.c_str(), -1, SQLITE_TRANSIENT) == SQLITE_OK;
+}
 
-void IgdbSync::Worker(HWND hwnd, IgdbClient* client, std::wstring destPath) {
-    // Re-authenticate if needed (token may have expired between launches)
-    if (!client->IsAuthenticated() && !client->HasCredentials()) {
+void IgdbSync::Worker(HWND hwnd, IgdbClient client, std::wstring dbPath) {
+    if (!client.HasCredentials()) {
+        PostMessageW(hwnd, WM_IGDBSYNC_DONE, 0, 0);
+        return;
+    }
+    if (!client.IsAuthenticated() && !client.Authenticate()) {
         PostMessageW(hwnd, WM_IGDBSYNC_DONE, 0, 0);
         return;
     }
 
-    std::string json = "{\n  \"v\":2,\"igdb\":true,\n";
+    sqlite3* db = nullptr;
+    if (sqlite3_open16(dbPath.c_str(), &db) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        PostMessageW(hwnd, WM_IGDBSYNC_DONE, 0, 0);
+        return;
+    }
+
+    const char* schema =
+        "PRAGMA journal_mode=WAL;"
+        "CREATE TABLE IF NOT EXISTS games ("
+        "platform TEXT NOT NULL,"
+        "key TEXT NOT NULL,"
+        "title TEXT NOT NULL,"
+        "igdb_id INTEGER NOT NULL,"
+        "PRIMARY KEY(platform,key)"
+        ");"
+        "CREATE INDEX IF NOT EXISTS idx_games_lookup ON games(platform,key);";
+
+    bool ok = Exec(db, schema) && Exec(db, "BEGIN IMMEDIATE;") && Exec(db, "DELETE FROM games;");
+    sqlite3_stmt* insert = nullptr;
+    if (ok) {
+        const char* sql =
+            "INSERT OR REPLACE INTO games(platform,key,title,igdb_id) VALUES(?,?,?,?);";
+        ok = sqlite3_prepare_v2(db, sql, -1, &insert, nullptr) == SQLITE_OK;
+    }
+
     int totalGames = 0;
+    if (ok) {
+        for (auto& plat : kPlatforms) {
+            int offset = 0;
+            const int pageSize = 500;
+            int platformGames = 0;
 
-    for (int pi = 0; pi < kNumPlatforms; ++pi) {
-        auto& plat = kPlatforms[pi];
-        json += "  \"";
-        json += plat.dbKey;
-        json += "\":{\n";
+            while (ok) {
+                auto games = client.FetchGamesByPlatform(plat.igdbId, offset, pageSize);
+                if (games.empty()) {
+                    if (offset == 0) ok = false;
+                    break;
+                }
 
-        bool firstEntry = true;
-        int offset = 0;
-        const int pageSize = 500;
+                for (auto& g : games) {
+                    if (g.id == 0 || g.name.empty()) continue;
 
-        while (true) {
-            auto games = client->FetchGamesByPlatform(plat.igdbId, offset, pageSize);
-            if (games.empty()) break;
+                    std::wstring key = IgdbSync::Normalise(g.name);
+                    if (key.empty()) continue;
 
-            for (auto& g : games) {
-                if (g.id == 0 || g.name.empty()) continue;
+                    sqlite3_reset(insert);
+                    sqlite3_clear_bindings(insert);
 
-                std::wstring key = IgdbSync::Normalise(g.name);
-                if (key.empty()) continue;
+                    ok = BindText(insert, 1, plat.dbKey)
+                      && BindText(insert, 2, ToUtf8(key))
+                      && BindText(insert, 3, ToUtf8(g.name))
+                      && sqlite3_bind_int64(insert, 4, g.id) == SQLITE_OK
+                      && sqlite3_step(insert) == SQLITE_DONE;
+                    if (!ok) break;
 
-                if (!firstEntry) json += ",\n";
-                firstEntry = false;
+                    ++totalGames;
+                    ++platformGames;
+                }
 
-                json += "    \"";
-                json += EscapeJson(key);
-                json += "\":{\"t\":\"";
-                json += EscapeJson(g.name);
-                json += "\",\"i\":";
-                json += std::to_string(g.id);
-                json += "}";
-
-                ++totalGames;
+                if (!ok || (int)games.size() < pageSize) break;
+                offset += (int)games.size();
+                Sleep(260);
             }
-
-            offset += (int)games.size();
-            if ((int)games.size() < pageSize) break;
-
-            // Respect IGDB rate limit: 4 requests/sec → wait 250ms between pages
-            Sleep(260);
-        }
-
-        json += "\n  }";
-        if (pi + 1 < kNumPlatforms) json += ",";
-        json += "\n";
-    }
-
-    json += "}\n";
-
-    // Write atomically via temp file
-    std::wstring tmp = destPath + L".tmp";
-    HANDLE hf = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr,
-                            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    bool ok = false;
-    if (hf != INVALID_HANDLE_VALUE) {
-        DWORD written = 0;
-        WriteFile(hf, json.data(), (DWORD)json.size(), &written, nullptr);
-        CloseHandle(hf);
-        if (written == json.size()) {
-            DeleteFileW(destPath.c_str());
-            ok = MoveFileW(tmp.c_str(), destPath.c_str()) != FALSE;
+            if (!ok || platformGames == 0) {
+                ok = false;
+                break;
+            }
         }
     }
-    if (!ok) DeleteFileW(tmp.c_str());
+
+    if (insert) sqlite3_finalize(insert);
+    if (totalGames == 0) ok = false;
+    if (ok) ok = Exec(db, "COMMIT;");
+    else Exec(db, "ROLLBACK;");
+    sqlite3_close(db);
 
     PostMessageW(hwnd, WM_IGDBSYNC_DONE, ok ? (WPARAM)totalGames : 0, 0);
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
 void IgdbSync::StartAsync(HWND hwnd, IgdbClient& client,
-                           const std::wstring& destPath) {
-    std::thread(Worker, hwnd, &client, destPath).detach();
+                           const std::wstring& dbPath) {
+    IgdbClient workerClient(client.ClientId(), client.ClientSecret());
+    workerClient.RestoreToken(client.SavedToken(), client.TokenExpiry());
+    std::thread(Worker, hwnd, std::move(workerClient), dbPath).detach();
 }

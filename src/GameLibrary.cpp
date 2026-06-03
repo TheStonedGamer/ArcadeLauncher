@@ -293,6 +293,10 @@ void GameLibrary::Load(const std::wstring& path) {
         else if (plat == "N64")     g.platform = Platform::N64;
         else if (plat == "NES")     g.platform = Platform::NES;
         else if (plat == "SNES")    g.platform = Platform::SNES;
+        else if (plat == "PS1")     g.platform = Platform::PS1;
+        else if (plat == "PS2")     g.platform = Platform::PS2;
+        else if (plat == "Xbox360") g.platform = Platform::Xbox360;
+        else if (plat == "Xbox")    g.platform = Platform::Xbox;
         else                        g.platform = Platform::Repacks;
 
         m_games.push_back(std::move(g));

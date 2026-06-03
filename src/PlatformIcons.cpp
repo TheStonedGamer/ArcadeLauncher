@@ -268,6 +268,15 @@ void PlatformIcons::Load(const EmulatorConfig& emuCfg,
         auto bmp = LoadFromFile(path, rt, wic);
         if (bmp) m_icons[(int)ci.platform] = std::move(bmp);
     }
+
+    // PS1 and PS2 previously shared a web favicon fallback, which made the
+    // sidebar ambiguous and could leave both blank if the download failed.
+    // Keep exe/cached icons when available; otherwise use deterministic badges.
+    for (Platform p : { Platform::PS1, Platform::PS2 }) {
+        if (m_icons.count((int)p)) continue;
+        auto bmp = CreateGeneratedIcon(p, rt);
+        if (bmp) m_icons[(int)p] = std::move(bmp);
+    }
 }
 
 bool PlatformIcons::DownloadConsoleIcons(const std::wstring& appDataDir) {
@@ -295,6 +304,12 @@ void PlatformIcons::TryLoadConsoleIcons(ID2D1RenderTarget* rt, IWICImagingFactor
         if (!FileExists(path)) continue;
         auto bmp = LoadFromFile(path, rt, wic);
         if (bmp) m_icons[(int)ci.platform] = std::move(bmp);
+    }
+
+    for (Platform p : { Platform::PS1, Platform::PS2 }) {
+        if (m_icons.count((int)p)) continue;
+        auto bmp = CreateGeneratedIcon(p, rt);
+        if (bmp) m_icons[(int)p] = std::move(bmp);
     }
 }
 
@@ -415,5 +430,93 @@ ComPtr<ID2D1Bitmap> PlatformIcons::HIconToD2D(HICON hIcon, ID2D1RenderTarget* rt
     DeleteObject(hBmp);
     if (ii.hbmColor) DeleteObject(ii.hbmColor);
     if (ii.hbmMask)  DeleteObject(ii.hbmMask);
+    return bmp;
+}
+
+ComPtr<ID2D1Bitmap> PlatformIcons::CreateGeneratedIcon(Platform platform,
+                                                        ID2D1RenderTarget* rt) {
+    if (!rt) return nullptr;
+
+    constexpr int W = 32;
+    constexpr int H = 32;
+    std::vector<DWORD> pixels(W * H, 0);
+
+    auto pack = [](BYTE r, BYTE g, BYTE b, BYTE a) -> DWORD {
+        return ((DWORD)a << 24) | ((DWORD)r << 16) | ((DWORD)g << 8) | b;
+    };
+    auto toByte = [](float v) -> BYTE {
+        v = std::max(0.0f, std::min(1.0f, v));
+        return (BYTE)(v * 255.0f + 0.5f);
+    };
+
+    D2D1_COLOR_F c = PlatformColor(platform);
+    BYTE baseR = toByte(c.r), baseG = toByte(c.g), baseB = toByte(c.b);
+    BYTE darkR = (BYTE)(baseR * 0.45f);
+    BYTE darkG = (BYTE)(baseG * 0.45f);
+    BYTE darkB = (BYTE)(baseB * 0.45f);
+
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            float dx = (float)x - 15.5f;
+            float dy = (float)y - 15.5f;
+            float dist2 = dx * dx + dy * dy;
+            if (dist2 > 15.5f * 15.5f) continue;
+
+            bool rim = dist2 > 13.8f * 13.8f;
+            float t = (float)y / (float)(H - 1);
+            BYTE r = rim ? (BYTE)255 : (BYTE)(baseR * (1.0f - t) + darkR * t);
+            BYTE g = rim ? (BYTE)255 : (BYTE)(baseG * (1.0f - t) + darkG * t);
+            BYTE b = rim ? (BYTE)255 : (BYTE)(baseB * (1.0f - t) + darkB * t);
+            BYTE a = rim ? (BYTE)220 : (BYTE)255;
+            pixels[y * W + x] = pack(r, g, b, a);
+        }
+    }
+
+    static const char* kOne[7] = {
+        "0110",
+        "1110",
+        "0110",
+        "0110",
+        "0110",
+        "0110",
+        "1111",
+    };
+    static const char* kTwo[7] = {
+        "1110",
+        "0001",
+        "0001",
+        "0110",
+        "1000",
+        "1000",
+        "1111",
+    };
+    const char** glyph = (platform == Platform::PS2) ? kTwo : kOne;
+    int scale = 3;
+    int glyphW = 4 * scale;
+    int glyphH = 7 * scale;
+    int ox = (W - glyphW) / 2;
+    int oy = (H - glyphH) / 2;
+
+    for (int gy = 0; gy < 7; ++gy) {
+        for (int gx = 0; gx < 4; ++gx) {
+            if (glyph[gy][gx] != '1') continue;
+            for (int sy = 0; sy < scale; ++sy) {
+                for (int sx = 0; sx < scale; ++sx) {
+                    int px = ox + gx * scale + sx;
+                    int py = oy + gy * scale + sy;
+                    if (px >= 0 && px < W && py >= 0 && py < H)
+                        pixels[py * W + px] = pack(255, 255, 255, 255);
+                }
+            }
+        }
+    }
+
+    D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
+                          D2D1_ALPHA_MODE_PREMULTIPLIED));
+
+    ComPtr<ID2D1Bitmap> bmp;
+    rt->CreateBitmap(D2D1::SizeU(W, H), pixels.data(), W * sizeof(DWORD),
+                     props, bmp.GetAddressOf());
     return bmp;
 }

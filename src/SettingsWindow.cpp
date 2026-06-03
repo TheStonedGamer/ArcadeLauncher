@@ -275,8 +275,10 @@ LRESULT SettingsWindow::HandleMsg(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             int total = (int)wp;
             if (total > 0) {
                 std::wstring msg = std::to_wstring(total)
-                    + L" games synced.  Rescan to apply.";
+                    + L" games synced.";
                 SetWindowTextW(stat, msg.c_str());
+                if (m_parent)
+                    PostMessageW(m_parent, WM_IGDBSYNC_DONE, wp, 0);
             } else {
                 SetWindowTextW(stat, L"Sync failed — check credentials.");
             }
@@ -1132,7 +1134,7 @@ void SettingsWindow::HandlePageCommand(int id) {
             SetWindowTextW(PC(ID_P_BTN6), L"Syncing…");
             SetWindowTextW(PC(ID_P_STAT2), L"Downloading game list from IGDB…");
 
-            std::wstring dest = GetAppDataPath() + L"\\romdb.json";
+            std::wstring dest = GetAppDataPath() + L"\\romdb.sqlite";
             IgdbSync::StartAsync(m_hwnd, *m_igdbClient, dest);
             return;
         }

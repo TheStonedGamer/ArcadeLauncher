@@ -4,6 +4,7 @@
 #include "Platform/EpicScanner.h"
 #include "Platform/GogScanner.h"
 #include "Platform/EmulatorScanner.h"
+#include "IgdbSync.h"
 
 static const wchar_t* WNDCLASS_NAME = L"ArcadeLauncherWnd";
 
@@ -121,25 +122,17 @@ bool App::Initialize(HINSTANCE hInstance, bool startInTray) {
         }
     }
 
+    {
+        std::wstring dbPath = GetAppDataPath() + L"\\romdb.sqlite";
+        m_romDb.Load(dbPath);
+        if (m_igdbClient.HasCredentials())
+            IgdbSync::StartAsync(m_hwnd, m_igdbClient, dbPath);
+    }
+
     UpdateSidebarFlags();
 
     // Kick off initial scan in background
     std::thread([this]() { ScanAllPlatforms(); }).detach();
-
-    // Load ROM database from cache (or download it in the background if missing)
-    {
-        std::wstring dbPath = GetAppDataPath() + L"\\romdb.json";
-        if (GetFileAttributesW(dbPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            m_romDb.Load(dbPath);  // already cached — load synchronously (fast)
-        } else {
-            // Download in background; rescan when done so titles are enhanced
-            std::thread([this, dbPath]() {
-                if (RomDatabase::Download(dbPath)) {
-                    PostMessageW(m_hwnd, WM_ROMDB_READY, 0, 0);
-                }
-            }).detach();
-        }
-    }
 
     // Check for a newer release on GitHub (silent — only fires WM_APP_UPDATE_FOUND if one exists)
     CheckForAppUpdateAsync(m_hwnd);
@@ -189,10 +182,11 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         break;
 
-    case WM_ROMDB_READY: {
+    case WM_ROMDB_READY:
+    case WM_IGDBSYNC_DONE: {
         // ROM database finished downloading — load it and rescan so titles
         // are enhanced immediately without requiring a launcher restart.
-        std::wstring dbPath = GetAppDataPath() + L"\\romdb.json";
+        std::wstring dbPath = GetAppDataPath() + L"\\romdb.sqlite";
         if (m_romDb.Load(dbPath))
             std::thread([this]() { ScanAllPlatforms(); }).detach();
         return 0;
@@ -280,13 +274,41 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
 
-    case WM_USER + 1:
+    case WM_USER + 1: {
         // Scan complete — update sidebar visibility flags, rebuild visible list,
         // and repaint. This runs on the main thread (safe to touch render state).
+        auto* scanned = reinterpret_cast<std::vector<Game>*>(lp);
+        if (scanned) {
+            m_library.MergeGames(std::move(*scanned));
+            delete scanned;
+        }
+
+        if (m_metaManager) {
+            m_metaManager->ScanAllAsync([this](const std::wstring& id, bool /*matched*/) {
+                PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(id));
+            });
+        }
+
+        if (m_fetcher) {
+            for (auto& g : m_library.All()) {
+                if (g.coverArtPath.empty()) {
+                    Game copy = g;
+                    m_fetcher->FetchArtAsync(copy, [this, id = g.id](const std::wstring& path) {
+                        if (auto* pg = m_library.FindById(id))
+                            pg->coverArtPath = path;
+                        PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(id));
+                    });
+                } else {
+                    PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(g.id));
+                }
+            }
+        }
+
         UpdateSidebarFlags();
         ApplyFilter();
         InvalidateRect(m_hwnd, nullptr, FALSE);
         return 0;
+    }
 
     case WM_USER + 3:
         // Background thread finished downloading platform icons.
@@ -465,6 +487,10 @@ void App::OnLButtonDown(float x, float y) {
             case Platform::N64:     page = SettingsWindow::PAGE_N64;     break;
             case Platform::NES:     page = SettingsWindow::PAGE_NES;     break;
             case Platform::SNES:    page = SettingsWindow::PAGE_SNES;    break;
+            case Platform::PS1:     page = SettingsWindow::PAGE_PS1;     break;
+            case Platform::PS2:     page = SettingsWindow::PAGE_PS2;     break;
+            case Platform::Xbox360: page = SettingsWindow::PAGE_XBOX360; break;
+            case Platform::Xbox:    page = SettingsWindow::PAGE_XBOX;    break;
             default: break;
             }
         }
@@ -993,34 +1019,9 @@ void App::ScanAllPlatforms() {
         }
     }
 
-    m_library.MergeGames(std::move(all));
-
-    // Kick off IGDB metadata scan for unmatched games
-    if (m_metaManager) {
-        m_metaManager->ScanAllAsync([this](const std::wstring& id, bool /*matched*/) {
-            // Signal main thread to load art; D2D bitmap creation must be on the render thread
-            PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(id));
-        });
-    }
-
-    // Kick off art fetches for games missing art
-    for (auto& g : m_library.All()) {
-        if (g.coverArtPath.empty()) {
-            Game copy = g;
-            m_fetcher->FetchArtAsync(copy, [this, id = g.id](const std::wstring& path) {
-                if (auto* pg = m_library.FindById(id))
-                    pg->coverArtPath = path;
-                PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(id));
-            });
-        } else {
-            // Already have art path — still must load on the main thread
-            PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(g.id));
-        }
-    }
-
-    // Hand all UI updates back to the main thread — never touch m_renderState or
-    // m_visibleGames from this background thread.
-    PostMessageW(m_hwnd, WM_USER + 1, 0, 0);
+    auto* payload = new std::vector<Game>(std::move(all));
+    if (!PostMessageW(m_hwnd, WM_USER + 1, 0, (LPARAM)payload))
+        delete payload;
 }
 
 void App::LaunchGame(const Game& game) {

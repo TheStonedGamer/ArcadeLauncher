@@ -97,6 +97,10 @@ void MetadataManager::ProcessItem(const WorkItem& item) {
         case Platform::N64:     return { 4 };      // Nintendo 64
         case Platform::NES:     return { 18 };     // NES
         case Platform::SNES:    return { 19 };     // SNES
+        case Platform::PS1:     return { 7 };      // PlayStation
+        case Platform::PS2:     return { 8 };      // PlayStation 2
+        case Platform::Xbox360: return { 12 };     // Xbox 360
+        case Platform::Xbox:    return { 11 };     // Xbox
         default:                return {};
         }
     };

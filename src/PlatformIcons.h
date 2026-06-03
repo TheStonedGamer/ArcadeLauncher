@@ -47,6 +47,7 @@ private:
                                      ID2D1RenderTarget* rt,
                                      IWICImagingFactory* wic);
     ComPtr<ID2D1Bitmap> HIconToD2D(HICON hIcon, ID2D1RenderTarget* rt);
+    ComPtr<ID2D1Bitmap> CreateGeneratedIcon(Platform platform, ID2D1RenderTarget* rt);
 
     static bool HttpDownload(const std::wstring& url, const std::wstring& dest);
 

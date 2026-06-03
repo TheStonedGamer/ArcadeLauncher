@@ -235,6 +235,38 @@ void EmulatorSetupWindow::Open(HWND parent, AppConfig& cfg,
             }
         });
 
+    if (!hasExe(cfg.emulators.duckstationPath))
+        m_entries.push_back({
+            L"DuckStation  \x2014  PlayStation 1 emulator",
+            { "stenzek/duckstation", L"windows-x64-release.zip",
+              L"duckstation-qt-x64-ReleaseLTCG.exe", L"duckstation" },
+            [](AppConfig& c, const std::wstring& exe, const std::wstring& tag) {
+                c.emulators.duckstationPath = exe;
+                c.emulators.duckstationTag  = tag;
+            }
+        });
+
+    if (!hasExe(cfg.emulators.pcsx2Path))
+        m_entries.push_back({
+            L"PCSX2  \x2014  PlayStation 2 emulator",
+            { "PCSX2/pcsx2", L"windows-x86_64-Qt", L"pcsx2-qt.exe", L"pcsx2" },
+            [](AppConfig& c, const std::wstring& exe, const std::wstring& tag) {
+                c.emulators.pcsx2Path = exe;
+                c.emulators.pcsx2Tag  = tag;
+            }
+        });
+
+    if (!hasExe(cfg.emulators.xeniaPath))
+        m_entries.push_back({
+            L"Xenia Canary  \x2014  Xbox 360 emulator",
+            { "xenia-canary/xenia-canary", L"xenia_canary.zip",
+              L"xenia_canary.exe", L"xenia-canary" },
+            [](AppConfig& c, const std::wstring& exe, const std::wstring& tag) {
+                c.emulators.xeniaPath = exe;
+                c.emulators.xeniaTag  = tag;
+            }
+        });
+
     if (m_entries.empty()) {
         // All emulators already present — nothing to do.
         if (m_onDone) m_onDone();

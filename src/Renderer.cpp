@@ -216,9 +216,12 @@ std::vector<Renderer::SidebarEntry> Renderer::BuildSidebarEntries(const RenderSt
     if (s.showRyujinx) v.push_back({ L"Ryujinx", false, Platform::Ryujinx });
     if (s.showRPCS3)   v.push_back({ L"RPCS3",   false, Platform::RPCS3   });
     if (s.showN64)     v.push_back({ L"N64",     false, Platform::N64     });
-    if (s.showNES)     v.push_back({ L"NES",     false, Platform::NES     });
-    if (s.showSNES)    v.push_back({ L"SNES",    false, Platform::SNES    });
-    if (s.showRepacks) v.push_back({ L"Repacks", false, Platform::Repacks });
+    if (s.showNES)     v.push_back({ L"NES",      false, Platform::NES     });
+    if (s.showSNES)    v.push_back({ L"SNES",     false, Platform::SNES    });
+    if (s.showPS1)     v.push_back({ L"PS1",      false, Platform::PS1     });
+    if (s.showPS2)     v.push_back({ L"PS2",      false, Platform::PS2     });
+    if (s.showXbox360) v.push_back({ L"Xbox 360", false, Platform::Xbox360 });
+    if (s.showRepacks) v.push_back({ L"Repacks",  false, Platform::Repacks });
     return v;
 }
 

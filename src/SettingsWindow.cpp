@@ -326,6 +326,7 @@ LRESULT SettingsWindow::HandleMsg(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         m_work.emulators.nesTag = result->tag;
                         m_cfg->emulators.nesTag = result->tag;
                     }
+                    // PS1/PS2/Xbox360 don't share exes — no sibling sync needed
                     if (onPage)
                         SetVersionLabel(result->tag, result->tag);
                 }
@@ -410,7 +411,8 @@ void SettingsWindow::RebuildSidebarItems() {
     SendMessageW(m_sidebar, LB_RESETCONTENT, 0, 0);
     static const wchar_t* fixed[] = {
         L"General", L"Steam", L"Epic Games", L"GOG Galaxy",
-        L"Dolphin", L"Ryujinx", L"RPCS3", L"N64", L"NES", L"SNES"
+        L"Dolphin", L"Ryujinx", L"RPCS3", L"N64", L"NES", L"SNES",
+        L"PS1", L"PS2", L"Xbox 360"
     };
     for (auto* s : fixed)
         SendMessageW(m_sidebar, LB_ADDSTRING, 0, (LPARAM)s);
@@ -438,6 +440,9 @@ void SettingsWindow::SwitchPage(int idx) {
     case PAGE_N64:     BuildN64Page();     break;
     case PAGE_NES:     BuildNesPage();     break;
     case PAGE_SNES:    BuildSnesPage();    break;
+    case PAGE_PS1:     BuildPS1Page();     break;
+    case PAGE_PS2:     BuildPS2Page();     break;
+    case PAGE_XBOX360: BuildXbox360Page(); break;
     default:
         if (idx >= PAGE_CUSTOM0) BuildCustomPage(idx - PAGE_CUSTOM0);
         break;
@@ -458,6 +463,9 @@ void SettingsWindow::SaveCurrentPage() {
     case PAGE_N64:     SaveN64Page();     break;
     case PAGE_NES:     SaveNesPage();     break;
     case PAGE_SNES:    SaveSnesPage();    break;
+    case PAGE_PS1:     SavePS1Page();     break;
+    case PAGE_PS2:     SavePS2Page();     break;
+    case PAGE_XBOX360: SaveXbox360Page(); break;
     default:
         if (m_currentPage >= PAGE_CUSTOM0) SaveCustomPage(m_currentPage - PAGE_CUSTOM0);
         break;
@@ -476,6 +484,9 @@ void SettingsWindow::LoadCurrentPage() {
     case PAGE_N64:     LoadN64Page();     break;
     case PAGE_NES:     LoadNesPage();     break;
     case PAGE_SNES:    LoadSnesPage();    break;
+    case PAGE_PS1:     LoadPS1Page();     break;
+    case PAGE_PS2:     LoadPS2Page();     break;
+    case PAGE_XBOX360: LoadXbox360Page(); break;
     default:
         if (m_currentPage >= PAGE_CUSTOM0) LoadCustomPage(m_currentPage - PAGE_CUSTOM0);
         break;
@@ -723,6 +734,65 @@ void SettingsWindow::BuildSnesPage() {
     AddPC(Btn(m_hwnd, L"Remove",   ID_P_BTN4, K_BX, y + 68));
 }
 
+// ── PS1 / PS2 / Xbox 360 ──────────────────────────────────────────────────────
+
+void SettingsWindow::BuildPS1Page() {
+    int y = PageHeader(m_hwnd, m_pageControls, L"PS1 Emulator");
+    AddPC(Group(m_hwnd, L" Executable ", K_CX, y, K_CW, 100));
+    AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
+    AddPC(Edit (m_hwnd, ID_P_EDIT1, K_CX + 58, y + 20, K_BX - K_CX - 64));
+    AddPC(Btn  (m_hwnd, L"Browse…",         ID_P_BTN1, K_BX, y + 20));
+    AddPC(Btn  (m_hwnd, L"Download latest", ID_P_BTN5, K_BX, y + 48));
+    AddPC(StatLabel(m_hwnd, L"Checking for updates\x2026", ID_P_STAT1,
+                    K_CX + 12, y + 76, K_CW - 24, 20));
+    y += 108;
+    AddPC(Group(m_hwnd, L" ROM directories ", K_CX, y, K_CW, 206));
+    AddPC(SmallLabel(m_hwnd,
+          L"PS1 ROMs  (.bin  .cue  .iso  .img  .chd  .pbp  .mdf  .m3u)",
+          K_CX + 12, y + 18, K_CW - 24));
+    AddPC(ListBox(m_hwnd, ID_P_LIST1, K_CX + 12, y + 40, K_LW, 148));
+    AddPC(Btn(m_hwnd, L"Add Dir…", ID_P_BTN3, K_BX, y + 40));
+    AddPC(Btn(m_hwnd, L"Remove",   ID_P_BTN4, K_BX, y + 68));
+}
+
+void SettingsWindow::BuildPS2Page() {
+    int y = PageHeader(m_hwnd, m_pageControls, L"PS2 Emulator");
+    AddPC(Group(m_hwnd, L" Executable ", K_CX, y, K_CW, 100));
+    AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
+    AddPC(Edit (m_hwnd, ID_P_EDIT1, K_CX + 58, y + 20, K_BX - K_CX - 64));
+    AddPC(Btn  (m_hwnd, L"Browse…",         ID_P_BTN1, K_BX, y + 20));
+    AddPC(Btn  (m_hwnd, L"Download latest", ID_P_BTN5, K_BX, y + 48));
+    AddPC(StatLabel(m_hwnd, L"Checking for updates\x2026", ID_P_STAT1,
+                    K_CX + 12, y + 76, K_CW - 24, 20));
+    y += 108;
+    AddPC(Group(m_hwnd, L" ROM directories ", K_CX, y, K_CW, 206));
+    AddPC(SmallLabel(m_hwnd,
+          L"PS2 ROMs  (.iso  .bin  .img  .mdf  .nrg  .chd  .cso  .cue)",
+          K_CX + 12, y + 18, K_CW - 24));
+    AddPC(ListBox(m_hwnd, ID_P_LIST1, K_CX + 12, y + 40, K_LW, 148));
+    AddPC(Btn(m_hwnd, L"Add Dir…", ID_P_BTN3, K_BX, y + 40));
+    AddPC(Btn(m_hwnd, L"Remove",   ID_P_BTN4, K_BX, y + 68));
+}
+
+void SettingsWindow::BuildXbox360Page() {
+    int y = PageHeader(m_hwnd, m_pageControls, L"Xbox 360 Emulator");
+    AddPC(Group(m_hwnd, L" Executable ", K_CX, y, K_CW, 100));
+    AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
+    AddPC(Edit (m_hwnd, ID_P_EDIT1, K_CX + 58, y + 20, K_BX - K_CX - 64));
+    AddPC(Btn  (m_hwnd, L"Browse…",         ID_P_BTN1, K_BX, y + 20));
+    AddPC(Btn  (m_hwnd, L"Download latest", ID_P_BTN5, K_BX, y + 48));
+    AddPC(StatLabel(m_hwnd, L"Checking for updates\x2026", ID_P_STAT1,
+                    K_CX + 12, y + 76, K_CW - 24, 20));
+    y += 108;
+    AddPC(Group(m_hwnd, L" ROM directories ", K_CX, y, K_CW, 206));
+    AddPC(SmallLabel(m_hwnd,
+          L"Xbox 360 games  (.xex  .iso)",
+          K_CX + 12, y + 18, K_CW - 24));
+    AddPC(ListBox(m_hwnd, ID_P_LIST1, K_CX + 12, y + 40, K_LW, 148));
+    AddPC(Btn(m_hwnd, L"Add Dir…", ID_P_BTN3, K_BX, y + 40));
+    AddPC(Btn(m_hwnd, L"Remove",   ID_P_BTN4, K_BX, y + 68));
+}
+
 void SettingsWindow::BuildCustomPage(int /*libIdx*/) {
     int y = PageHeader(m_hwnd, m_pageControls, L"Custom Library");
 
@@ -907,6 +977,57 @@ void SettingsWindow::SaveSnesPage() {
     }
 }
 
+void SettingsWindow::LoadPS1Page() {
+    auto& e = m_work.emulators;
+    SetWindowTextW(PC(ID_P_EDIT1), e.duckstationPath.c_str());
+    VecToList(PC(ID_P_LIST1), e.duckstationRomDirs);
+    SetVersionLabel(e.duckstationTag, {});
+    CheckEmulatorUpdateAsync(m_hwnd, PAGE_PS1, "stenzek/duckstation");
+}
+void SettingsWindow::SavePS1Page() {
+    auto& e = m_work.emulators;
+    e.duckstationPath    = GetTxt(PC(ID_P_EDIT1));
+    ListToVec(PC(ID_P_LIST1), e.duckstationRomDirs);
+    if (m_cfg) {
+        m_cfg->emulators.duckstationPath    = e.duckstationPath;
+        m_cfg->emulators.duckstationRomDirs = e.duckstationRomDirs;
+    }
+}
+
+void SettingsWindow::LoadPS2Page() {
+    auto& e = m_work.emulators;
+    SetWindowTextW(PC(ID_P_EDIT1), e.pcsx2Path.c_str());
+    VecToList(PC(ID_P_LIST1), e.pcsx2RomDirs);
+    SetVersionLabel(e.pcsx2Tag, {});
+    CheckEmulatorUpdateAsync(m_hwnd, PAGE_PS2, "PCSX2/pcsx2");
+}
+void SettingsWindow::SavePS2Page() {
+    auto& e = m_work.emulators;
+    e.pcsx2Path    = GetTxt(PC(ID_P_EDIT1));
+    ListToVec(PC(ID_P_LIST1), e.pcsx2RomDirs);
+    if (m_cfg) {
+        m_cfg->emulators.pcsx2Path    = e.pcsx2Path;
+        m_cfg->emulators.pcsx2RomDirs = e.pcsx2RomDirs;
+    }
+}
+
+void SettingsWindow::LoadXbox360Page() {
+    auto& e = m_work.emulators;
+    SetWindowTextW(PC(ID_P_EDIT1), e.xeniaPath.c_str());
+    VecToList(PC(ID_P_LIST1), e.xeniaRomDirs);
+    SetVersionLabel(e.xeniaTag, {});
+    CheckEmulatorUpdateAsync(m_hwnd, PAGE_XBOX360, "xenia-canary/xenia-canary");
+}
+void SettingsWindow::SaveXbox360Page() {
+    auto& e = m_work.emulators;
+    e.xeniaPath    = GetTxt(PC(ID_P_EDIT1));
+    ListToVec(PC(ID_P_LIST1), e.xeniaRomDirs);
+    if (m_cfg) {
+        m_cfg->emulators.xeniaPath    = e.xeniaPath;
+        m_cfg->emulators.xeniaRomDirs = e.xeniaRomDirs;
+    }
+}
+
 void SettingsWindow::LoadCustomPage(int idx) {
     auto& libs = m_work.libraries.customLibraries;
     if (idx < 0 || idx >= (int)libs.size()) return;
@@ -1048,6 +1169,57 @@ void SettingsWindow::HandlePageCommand(int id) {
         }
         break;
 
+    case PAGE_PS1:
+        if (id == ID_P_BTN1) {
+            std::wstring p = BrowseExe(GetTxt(PC(ID_P_EDIT1)));
+            if (!p.empty()) SetWindowTextW(PC(ID_P_EDIT1), p.c_str());
+        }
+        else if (id == ID_P_BTN3) ListAddPath(PC(ID_P_LIST1));
+        else if (id == ID_P_BTN4) ListRemoveSel(PC(ID_P_LIST1));
+        else if (id == ID_P_BTN5) {
+            EnableWindow(PC(ID_P_BTN5), FALSE);
+            SetWindowTextW(PC(ID_P_BTN5), L"Downloading…");
+            DownloadEmulatorAsync(m_hwnd, PAGE_PS1,
+                { "stenzek/duckstation", L"windows-x64-release.zip",
+                  L"duckstation-qt-x64-ReleaseLTCG.exe", L"duckstation" },
+                GetAppDataPath());
+        }
+        break;
+
+    case PAGE_PS2:
+        if (id == ID_P_BTN1) {
+            std::wstring p = BrowseExe(GetTxt(PC(ID_P_EDIT1)));
+            if (!p.empty()) SetWindowTextW(PC(ID_P_EDIT1), p.c_str());
+        }
+        else if (id == ID_P_BTN3) ListAddPath(PC(ID_P_LIST1));
+        else if (id == ID_P_BTN4) ListRemoveSel(PC(ID_P_LIST1));
+        else if (id == ID_P_BTN5) {
+            EnableWindow(PC(ID_P_BTN5), FALSE);
+            SetWindowTextW(PC(ID_P_BTN5), L"Downloading…");
+            DownloadEmulatorAsync(m_hwnd, PAGE_PS2,
+                { "PCSX2/pcsx2", L"windows-x86_64-Qt",
+                  L"pcsx2-qt.exe", L"pcsx2" },
+                GetAppDataPath());
+        }
+        break;
+
+    case PAGE_XBOX360:
+        if (id == ID_P_BTN1) {
+            std::wstring p = BrowseExe(GetTxt(PC(ID_P_EDIT1)));
+            if (!p.empty()) SetWindowTextW(PC(ID_P_EDIT1), p.c_str());
+        }
+        else if (id == ID_P_BTN3) ListAddPath(PC(ID_P_LIST1));
+        else if (id == ID_P_BTN4) ListRemoveSel(PC(ID_P_LIST1));
+        else if (id == ID_P_BTN5) {
+            EnableWindow(PC(ID_P_BTN5), FALSE);
+            SetWindowTextW(PC(ID_P_BTN5), L"Downloading…");
+            DownloadEmulatorAsync(m_hwnd, PAGE_XBOX360,
+                { "xenia-canary/xenia-canary", L"xenia_canary.zip",
+                  L"xenia_canary.exe", L"xenia-canary" },
+                GetAppDataPath());
+        }
+        break;
+
     default:
         if (m_currentPage >= PAGE_CUSTOM0) {
             int li = m_currentPage - PAGE_CUSTOM0;
@@ -1170,8 +1342,11 @@ void SettingsWindow::SaveTagForPage(int page, const std::wstring& tag) {
     case PAGE_RYUJINX:  ew.ryujinxTag = ec.ryujinxTag = tag; break;
     case PAGE_RPCS3:    ew.rpcs3Tag   = ec.rpcs3Tag   = tag; break;
     case PAGE_N64:      ew.n64Tag     = ec.n64Tag     = tag; break;
-    case PAGE_NES:      ew.nesTag     = ec.nesTag     = tag; break;
-    case PAGE_SNES:     ew.snesTag    = ec.snesTag    = tag; break;
+    case PAGE_NES:      ew.nesTag          = ec.nesTag          = tag; break;
+    case PAGE_SNES:     ew.snesTag         = ec.snesTag         = tag; break;
+    case PAGE_PS1:      ew.duckstationTag  = ec.duckstationTag  = tag; break;
+    case PAGE_PS2:      ew.pcsx2Tag        = ec.pcsx2Tag        = tag; break;
+    case PAGE_XBOX360:  ew.xeniaTag        = ec.xeniaTag        = tag; break;
     }
 }
 
@@ -1197,6 +1372,12 @@ void SettingsWindow::SetPathForPage(int page, const std::wstring& exePath) {
         ew.snesPath = ec.snesPath = exePath;
         ew.nesPath  = ec.nesPath  = exePath;  // same Mesen2 exe
         break;
+    case PAGE_PS1:
+        ew.duckstationPath = ec.duckstationPath = exePath; break;
+    case PAGE_PS2:
+        ew.pcsx2Path       = ec.pcsx2Path       = exePath; break;
+    case PAGE_XBOX360:
+        ew.xeniaPath       = ec.xeniaPath       = exePath; break;
     }
 }
 
@@ -1209,6 +1390,9 @@ std::wstring SettingsWindow::InstalledTagForPage(int page) const {
     case PAGE_N64:      return e.n64Tag;
     case PAGE_NES:      return e.nesTag;
     case PAGE_SNES:     return e.snesTag;
+    case PAGE_PS1:      return e.duckstationTag;
+    case PAGE_PS2:      return e.pcsx2Tag;
+    case PAGE_XBOX360:  return e.xeniaTag;
     default:            return {};
     }
 }
@@ -1221,6 +1405,9 @@ std::string SettingsWindow::GithubRepoForPage(int page) const {
     case PAGE_N64:      return "gopher64/gopher64";
     case PAGE_NES:
     case PAGE_SNES:     return "SourMesen/Mesen2";
+    case PAGE_PS1:      return "stenzek/duckstation";
+    case PAGE_PS2:      return "PCSX2/pcsx2";
+    case PAGE_XBOX360:  return "xenia-canary/xenia-canary";
     default:            return {};
     }
 }

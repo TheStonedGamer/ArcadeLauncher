@@ -774,8 +774,11 @@ void App::ShowMenuBar() {
     addTool(IDM_TOOL_RYUJINX, L"Launch Ryujinx",  emu.ryujinxPath);
     addTool(IDM_TOOL_RPCS3,   L"Launch RPCS3",    emu.rpcs3Path);
     addTool(IDM_TOOL_N64,     L"Launch N64 Emulator", emu.n64Path);
-    addTool(IDM_TOOL_NES,     L"Launch NES Emulator", emu.nesPath);
-    addTool(IDM_TOOL_SNES,    L"Launch SNES Emulator", emu.snesPath);
+    addTool(IDM_TOOL_NES,     L"Launch NES Emulator",    emu.nesPath);
+    addTool(IDM_TOOL_SNES,    L"Launch SNES Emulator",   emu.snesPath);
+    addTool(IDM_TOOL_PS1,     L"Launch DuckStation",     emu.duckstationPath);
+    addTool(IDM_TOOL_PS2,     L"Launch PCSX2",           emu.pcsx2Path);
+    addTool(IDM_TOOL_XBOX360, L"Launch Xenia Canary",    emu.xeniaPath);
 
     HMENU hMenuBar = CreatePopupMenu();
     AppendMenuW(hMenuBar, MF_POPUP, (UINT_PTR)hTools, L"Tools");
@@ -802,8 +805,11 @@ void App::ShowMenuBar() {
     case IDM_TOOL_RYUJINX: launchStandalone(emu.ryujinxPath, emu.ryujinxArgs); break;
     case IDM_TOOL_RPCS3:   launchStandalone(emu.rpcs3Path,   emu.rpcs3Args);   break;
     case IDM_TOOL_N64:     launchStandalone(emu.n64Path,     emu.n64Args);     break;
-    case IDM_TOOL_NES:     launchStandalone(emu.nesPath,     emu.nesArgs);     break;
-    case IDM_TOOL_SNES:    launchStandalone(emu.snesPath,    emu.snesArgs);    break;
+    case IDM_TOOL_NES:     launchStandalone(emu.nesPath,           emu.nesArgs);           break;
+    case IDM_TOOL_SNES:    launchStandalone(emu.snesPath,          emu.snesArgs);          break;
+    case IDM_TOOL_PS1:     launchStandalone(emu.duckstationPath,   emu.duckstationArgs);   break;
+    case IDM_TOOL_PS2:     launchStandalone(emu.pcsx2Path,         emu.pcsx2Args);         break;
+    case IDM_TOOL_XBOX360: launchStandalone(emu.xeniaPath,         emu.xeniaArgs);         break;
     }
 }
 
@@ -874,6 +880,36 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.snesArgs.empty() ? L"{rom}" : emu.snesArgs;
         rc.romDirs      = emu.snesRomDirs;
         rc.extensions   = { L"sfc", L"smc", L"fig", L"bs", L"st", L"zip" };
+        scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
+    }
+
+    if (!emu.duckstationPath.empty()) {
+        EmulatorRomConfig rc;
+        rc.platform     = Platform::PS1;
+        rc.emulatorPath = emu.duckstationPath;
+        rc.emulatorArgs = emu.duckstationArgs.empty() ? L"-batch {rom}" : emu.duckstationArgs;
+        rc.romDirs      = emu.duckstationRomDirs;
+        rc.extensions   = { L"bin", L"cue", L"iso", L"img", L"chd", L"pbp", L"mdf", L"m3u" };
+        scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
+    }
+
+    if (!emu.pcsx2Path.empty()) {
+        EmulatorRomConfig rc;
+        rc.platform     = Platform::PS2;
+        rc.emulatorPath = emu.pcsx2Path;
+        rc.emulatorArgs = emu.pcsx2Args.empty() ? L"--no-gui {rom}" : emu.pcsx2Args;
+        rc.romDirs      = emu.pcsx2RomDirs;
+        rc.extensions   = { L"iso", L"bin", L"img", L"mdf", L"nrg", L"chd", L"cso", L"cue" };
+        scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
+    }
+
+    if (!emu.xeniaPath.empty()) {
+        EmulatorRomConfig rc;
+        rc.platform     = Platform::Xbox360;
+        rc.emulatorPath = emu.xeniaPath;
+        rc.emulatorArgs = emu.xeniaArgs.empty() ? L"{rom}" : emu.xeniaArgs;
+        rc.romDirs      = emu.xeniaRomDirs;
+        rc.extensions   = { L"xex", L"iso" };
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
@@ -1031,6 +1067,9 @@ void App::UpdateSidebarFlags() {
     m_renderState.showN64     = true;
     m_renderState.showNES     = true;
     m_renderState.showSNES    = true;
+    m_renderState.showPS1     = true;
+    m_renderState.showPS2     = true;
+    m_renderState.showXbox360 = true;
     m_renderState.showRepacks = !lib.customLibraries.empty();
     int count = Renderer::GetSidebarEntryCount(m_renderState);
     if (m_renderState.sidebarFocusIdx >= count)
@@ -1113,7 +1152,10 @@ void App::OpenEditTitle(int visibleIdx) {
                        g->platform == Platform::RPCS3   ||
                        g->platform == Platform::N64     ||
                        g->platform == Platform::NES     ||
-                       g->platform == Platform::SNES);
+                       g->platform == Platform::SNES    ||
+                       g->platform == Platform::PS1     ||
+                       g->platform == Platform::PS2     ||
+                       g->platform == Platform::Xbox360);
 
     GameEditDialog dlg;
     dlg.Show(m_hwnd, g->title, isEmulated, g->igdbPlatformId);

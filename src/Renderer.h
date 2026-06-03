@@ -29,6 +29,9 @@ struct RenderState {
     bool showN64     = true;
     bool showNES     = true;
     bool showSNES    = true;
+    bool showPS1     = true;
+    bool showPS2     = true;
+    bool showXbox360 = true;
     bool showRepacks = true;
 
     bool metaScanning = false;

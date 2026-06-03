@@ -58,9 +58,12 @@ jobs:
             if ($msg -match '\[major\]') {
               $major++; $minor = 0; $patch = 0
               Write-Host "Bump type       : MAJOR"
-            } else {
+            } elseif ($msg -match '\[minor\]') {
               $minor++; $patch = 0
               Write-Host "Bump type       : MINOR"
+            } else {
+              $patch++
+              Write-Host "Bump type       : PATCH"
             }
 
             # Rewrite Version.h

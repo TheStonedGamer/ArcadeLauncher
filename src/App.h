@@ -29,7 +29,7 @@ private:
     void OnDestroy();
     void OnSize(UINT w, UINT h);
     void OnPaint();
-    void OnTimer();
+    void OnTimer(UINT timerId);
     void OnMouseMove(float x, float y);
     void OnLButtonDown(float x, float y);
     void OnLButtonUp(float x, float y);

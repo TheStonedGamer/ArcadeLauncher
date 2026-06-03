@@ -8,7 +8,7 @@
 static const wchar_t* WNDCLASS_NAME = L"ArcadeLauncherWnd";
 
 App::App() {}
-App::~App() { SaveAll(); }
+App::~App() {}
 
 bool App::Initialize(HINSTANCE hInstance) {
     m_hInst = hInstance;
@@ -164,7 +164,7 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
 
     case WM_TIMER:
-        OnTimer();
+        OnTimer((UINT)wp);
         return 0;
 
     case WM_MOUSEMOVE:
@@ -248,6 +248,12 @@ void App::OnDestroy() {
 void App::OnSize(UINT w, UINT h) {
     if (w && h) {
         m_renderer.Resize(w, h);
+        // Persist window dimensions so the next launch opens at the same size.
+        // Skip while fullscreen — we don't want to overwrite the windowed size.
+        if (!m_fullscreen) {
+            m_config.Get().windowWidth  = (int)w;
+            m_config.Get().windowHeight = (int)h;
+        }
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }
@@ -257,8 +263,13 @@ void App::OnPaint() {
     m_renderer.Render(m_visibleGames, m_renderState);
 }
 
-void App::OnTimer() {
-    // Smooth scroll animation
+void App::OnTimer(UINT timerId) {
+    if (timerId == TIMER_SAVE) {
+        SaveAll();
+        return;
+    }
+
+    // TIMER_ANIM: smooth scroll animation
     float& s = m_renderState.scrollOffset;
     float& t = m_renderState.targetScroll;
     float diff = t - s;

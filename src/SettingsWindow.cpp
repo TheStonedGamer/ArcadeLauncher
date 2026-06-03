@@ -120,7 +120,8 @@ static int PageHeader(HWND hwnd, std::vector<HWND>& pc, const wchar_t* title) {
 void SettingsWindow::Open(HWND parent, AppConfig& cfg,
                            std::function<void()> onSave,
                            std::function<void()> onRefreshMeta,
-                           std::function<void()> onReacquireMeta) {
+                           std::function<void()> onReacquireMeta,
+                           int startPage) {
     if (IsOpen()) { SetForegroundWindow(m_hwnd); return; }
     m_parent           = parent;
     m_cfg              = &cfg;
@@ -128,6 +129,7 @@ void SettingsWindow::Open(HWND parent, AppConfig& cfg,
     m_onSave           = onSave;
     m_onRefreshMeta    = onRefreshMeta;
     m_onReacquireMeta  = onReacquireMeta;
+    m_startPage        = startPage;
 
     EnsureFonts();
 
@@ -177,7 +179,7 @@ LRESULT CALLBACK SettingsWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)self);
         self->m_hwnd = hwnd;
         self->CreateChrome(hwnd);
-        self->SwitchPage(PAGE_GENERAL);
+        self->SwitchPage(self->m_startPage);
         return 0;
     }
     auto* self = reinterpret_cast<SettingsWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));

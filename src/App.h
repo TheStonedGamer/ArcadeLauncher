@@ -46,7 +46,7 @@ private:
     void ApplySidebarFilter(int idx);
     void ScrollToSelected();
     void UpdateSidebarFlags();
-    void OpenSettings();
+    void OpenSettings(int startPage = 0);
     void OpenMetadataPicker(const std::wstring& gameId, const std::wstring& gameTitle);
     void OpenEditTitle(int visibleIdx);
     void DeleteRom(int visibleIdx);

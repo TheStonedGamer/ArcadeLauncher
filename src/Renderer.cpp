@@ -311,12 +311,32 @@ void Renderer::DrawSidebar(const RenderState& state) {
 
 void Renderer::DrawGrid(const std::vector<const Game*>& games, RenderState& state) {
     if (games.empty()) {
-        D2D1_RECT_F rect = D2D1::RectF(m_sidebarW, m_topbarH,
-                                        (float)m_width, (float)m_height);
-        m_rt->DrawText(L"No games found. Click the gear icon to configure paths.",
-                       54, m_fmtDetail.Get(), rect, m_brushSubtext.Get());
+        m_emptyStateBtnRect = {};   // reset; set below if we draw the button
+
+        float cx = (m_sidebarW + m_width) / 2.0f;
+        float cy = (m_topbarH + m_height) / 2.0f;
+
+        // Dim message above the button
+        static const wchar_t kMsg[] = L"No games in this library";
+        D2D1_RECT_F msgR = D2D1::RectF(m_sidebarW + 40, cy - 58.0f,
+                                        (float)m_width - 40, cy - 16.0f);
+        m_rt->DrawText(kMsg, (UINT32)(sizeof(kMsg)/sizeof(wchar_t) - 1),
+                       m_fmtDetail.Get(), msgR, m_brushSubtext.Get());
+
+        // "Open Settings" button
+        float bw = 196.0f, bh = 38.0f;
+        m_emptyStateBtnRect = D2D1::RectF(cx - bw / 2, cy - 2.0f,
+                                           cx + bw / 2, cy - 2.0f + bh);
+        auto rr = D2D1::RoundedRect(m_emptyStateBtnRect, 8.0f, 8.0f);
+        m_rt->FillRoundedRectangle(rr, m_brushCard.Get());
+        m_rt->DrawRoundedRectangle(rr, m_brushAccent.Get(), 1.5f);
+
+        static const wchar_t kBtn[] = L"Open Settings";
+        m_rt->DrawText(kBtn, (UINT32)(sizeof(kBtn)/sizeof(wchar_t) - 1),
+                       m_fmtSidebar.Get(), m_emptyStateBtnRect, m_brushAccent.Get());
         return;
     }
+    m_emptyStateBtnRect = {};
 
     // Clipping to grid area
     D2D1_RECT_F clip = D2D1::RectF(m_sidebarW, m_topbarH,
@@ -674,6 +694,12 @@ bool Renderer::HitTestLaunchBtn(float x, float y) const {
 bool Renderer::HitTestSettingsBtn(float x, float y) const {
     return x >= m_settingsBtnRect.left && x <= m_settingsBtnRect.right &&
            y >= m_settingsBtnRect.top  && y <= m_settingsBtnRect.bottom;
+}
+
+bool Renderer::HitTestEmptyStateBtn(float x, float y) const {
+    if (m_emptyStateBtnRect.right == m_emptyStateBtnRect.left) return false;
+    return x >= m_emptyStateBtnRect.left && x <= m_emptyStateBtnRect.right &&
+           y >= m_emptyStateBtnRect.top  && y <= m_emptyStateBtnRect.bottom;
 }
 
 float Renderer::ScrollForSelected(int idx, float currentScroll, float viewportH) const {

@@ -7,15 +7,7 @@ public:
     SettingsWindow() = default;
     ~SettingsWindow() { Close(); }
 
-    void Open(HWND parent, AppConfig& cfg,
-              std::function<void()> onSave,
-              std::function<void()> onRefreshMeta    = {},
-              std::function<void()> onReacquireMeta  = {});
-    void Close();
-    bool IsOpen() const;
-
-private:
-    // Sidebar page indices
+    // Sidebar page indices — public so callers can request a specific start page.
     static constexpr int PAGE_GENERAL = 0;
     static constexpr int PAGE_STEAM   = 1;
     static constexpr int PAGE_EPIC    = 2;
@@ -27,6 +19,16 @@ private:
     static constexpr int PAGE_NES     = 8;
     static constexpr int PAGE_SNES    = 9;
     static constexpr int PAGE_CUSTOM0 = 10;
+
+    void Open(HWND parent, AppConfig& cfg,
+              std::function<void()> onSave,
+              std::function<void()> onRefreshMeta    = {},
+              std::function<void()> onReacquireMeta  = {},
+              int startPage = PAGE_GENERAL);
+    void Close();
+    bool IsOpen() const;
+
+private:
 
     enum CtrlId : int {
         ID_SIDEBAR = 10,
@@ -120,6 +122,7 @@ private:
     std::function<void()> m_onReacquireMeta;
 
     HBRUSH m_sidebarBrush = nullptr;
+    int    m_startPage    = PAGE_GENERAL;
 
     static constexpr wchar_t WNDCLASS[] = L"ArcadeLauncherSettings2";
 };

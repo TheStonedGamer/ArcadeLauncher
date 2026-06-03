@@ -369,6 +369,24 @@ void App::OnLButtonDown(float x, float y) {
         return;
     }
 
+    if (m_renderer.HitTestEmptyStateBtn(x, y)) {
+        // Map the currently-filtered platform to its settings page
+        int page = SettingsWindow::PAGE_GENERAL;
+        if (!m_renderState.filterAll) {
+            switch (m_renderState.filterPlatform) {
+            case Platform::Dolphin: page = SettingsWindow::PAGE_DOLPHIN; break;
+            case Platform::Ryujinx: page = SettingsWindow::PAGE_RYUJINX; break;
+            case Platform::RPCS3:   page = SettingsWindow::PAGE_RPCS3;   break;
+            case Platform::N64:     page = SettingsWindow::PAGE_N64;     break;
+            case Platform::NES:     page = SettingsWindow::PAGE_NES;     break;
+            case Platform::SNES:    page = SettingsWindow::PAGE_SNES;    break;
+            default: break;
+            }
+        }
+        OpenSettings(page);
+        return;
+    }
+
     Platform p; bool all;
     if (m_renderer.HitTestSidebar(x, y, m_renderState, p, all)) {
         m_renderState.filterAll      = all;
@@ -950,12 +968,12 @@ void App::UpdateSidebarFlags() {
     m_renderState.showSteam   = lib.steamEnabled;
     m_renderState.showEpic    = lib.epicEnabled;
     m_renderState.showGog     = lib.gogEnabled;
-    m_renderState.showDolphin = emu.dolphinEnabled && !emu.dolphinPath.empty();
-    m_renderState.showRyujinx = emu.ryujinxEnabled && !emu.ryujinxPath.empty();
-    m_renderState.showRPCS3   = emu.rpcs3Enabled   && !emu.rpcs3Path.empty();
-    m_renderState.showN64     = emu.n64Enabled     && !emu.n64Path.empty();
-    m_renderState.showNES     = emu.nesEnabled     && !emu.nesPath.empty();
-    m_renderState.showSNES    = emu.snesEnabled    && !emu.snesPath.empty();
+    m_renderState.showDolphin = emu.dolphinEnabled;
+    m_renderState.showRyujinx = emu.ryujinxEnabled;
+    m_renderState.showRPCS3   = emu.rpcs3Enabled;
+    m_renderState.showN64     = emu.n64Enabled;
+    m_renderState.showNES     = emu.nesEnabled;
+    m_renderState.showSNES    = emu.snesEnabled;
     m_renderState.showRepacks = std::any_of(lib.customLibraries.begin(),
         lib.customLibraries.end(), [](const CustomLibraryConfig& cl) { return cl.enabled; });
     int count = Renderer::GetSidebarEntryCount(m_renderState);
@@ -1130,7 +1148,7 @@ void App::OpenMetadataPicker(const std::wstring& gameId, const std::wstring& gam
         });
 }
 
-void App::OpenSettings() {
+void App::OpenSettings(int startPage) {
     if (m_settings.IsOpen()) return;
 
     SaveAll();
@@ -1174,7 +1192,8 @@ void App::OpenSettings() {
             if (m_metaManager)
                 m_metaManager->ForceRescanAllAsync(metaProgressCb);
             InvalidateRect(m_hwnd, nullptr, FALSE);
-        });
+        },
+        startPage);
 }
 
 void App::SaveAll() {

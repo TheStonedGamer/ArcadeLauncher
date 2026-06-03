@@ -61,6 +61,7 @@ public:
     bool HitTestSearch(float x, float y) const;
     bool HitTestLaunchBtn(float x, float y) const;
     bool HitTestSettingsBtn(float x, float y) const;
+    bool HitTestEmptyStateBtn(float x, float y) const;
 
     // Returns the recommended targetScroll so that game at idx is fully visible.
     float ScrollForSelected(int idx, float currentScroll, float viewportH) const;
@@ -139,4 +140,5 @@ private:
     D2D1_RECT_F m_searchRect{};
     D2D1_RECT_F m_launchBtnRect{};
     D2D1_RECT_F m_settingsBtnRect{};
+    D2D1_RECT_F m_emptyStateBtnRect{};  // non-zero only when the empty-state button is visible
 };

@@ -10,7 +10,7 @@
     4. Builds the MSI into dist\ArcadeLauncher-x64.msi
 
 .PARAMETER Config
-    Build configuration — "Release" (default) or "Debug".
+    Build configuration -- "Release" (default) or "Debug".
 
 .PARAMETER SkipBuild
     Skip the MSBuild step (use existing bin\Release output).
@@ -60,7 +60,7 @@ $Exe     = "$BinDir\ArcadeLauncher.exe"
 $WixVersion = "4.0.5"
 $WixUIExt   = "WixToolset.UI.wixext/$WixVersion"
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+# --- Helpers ------------------------------------------------------------------
 
 function Write-Step([string]$msg) {
     Write-Host ""
@@ -79,7 +79,8 @@ function Find-MSBuild {
         throw "vswhere.exe not found. Install Visual Studio 2022 with the 'Desktop development with C++' workload."
     }
     $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild `
-                          -find "MSBuild\**\Bin\MSBuild.exe" 2>$null | Select-Object -First 1
+                          -find "MSBuild\**\Bin\MSBuild.exe" 2>$null |
+               Select-Object -First 1
     if (-not $msbuild -or -not (Test-Path $msbuild)) {
         throw "MSBuild not found via vswhere. Ensure the C++ workload is installed."
     }
@@ -90,9 +91,8 @@ function Ensure-WiX {
     $wix = (Get-Command wix -ErrorAction SilentlyContinue)
     if ($wix) { return $wix.Source }
 
-    Write-Host "  WiX CLI not found — installing via dotnet tool..." -ForegroundColor Yellow
+    Write-Host "  WiX CLI not found -- installing via dotnet tool..." -ForegroundColor Yellow
 
-    # dotnet is required
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
         throw "dotnet SDK not found. Install the .NET SDK from https://dotnet.microsoft.com/download"
     }
@@ -109,9 +109,8 @@ function Ensure-WiX {
 }
 
 function Find-SignTool {
-    $signtool = (Get-Command signtool -ErrorAction SilentlyContinue)?.Source
-    if ($signtool) { return $signtool }
-    # Search SDK paths
+    $signtool = (Get-Command signtool -ErrorAction SilentlyContinue)
+    if ($signtool) { return $signtool.Source }
     $sdk = "C:\Program Files (x86)\Windows Kits\10\bin"
     $candidates = Get-ChildItem "$sdk\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
                   Sort-Object FullName -Descending
@@ -122,7 +121,6 @@ function Find-SignTool {
 function Sign-File([string]$path, [string]$signtool) {
     $thumb = $env:SIGN_THUMBPRINT
     if (-not $thumb) {
-        # Pick the first available code-signing cert from the personal store
         $cert = Get-ChildItem Cert:\CurrentUser\My |
                 Where-Object { $_.EnhancedKeyUsageList.FriendlyName -contains "Code Signing" } |
                 Select-Object -First 1
@@ -135,18 +133,18 @@ function Sign-File([string]$path, [string]$signtool) {
     }
 }
 
-# ─── Step 0: Prerequisite check ───────────────────────────────────────────────
+# --- Step 0: Header -----------------------------------------------------------
 
 Write-Host ""
-Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "║   ArcadeLauncher Build Pipeline      ║" -ForegroundColor Green
-Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "   ArcadeLauncher Build Pipeline" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
 Write-Host "  Config  : $Config"
 Write-Host "  Root    : $Root"
 Write-Host "  BinDir  : $BinDir"
 Write-Host "  Output  : $OutMsi"
 
-# ─── Step 1: Build ────────────────────────────────────────────────────────────
+# --- Step 1: Build ------------------------------------------------------------
 
 if (-not $SkipBuild) {
     Write-Step "Building $Config|x64"
@@ -156,25 +154,25 @@ if (-not $SkipBuild) {
         & $msbuild $Sln /p:Configuration=$Config /p:Platform=x64 /m /nologo `
             /p:TreatWarningsAsErrors=false
     }
-    Write-Host "  ✓ Build succeeded  →  $Exe" -ForegroundColor Green
+    Write-Host "  Build succeeded  -->  $Exe" -ForegroundColor Green
 } else {
-    Write-Host "  (skipping build — using existing $Exe)"
+    Write-Host "  (skipping build -- using existing $Exe)"
 }
 
 if (-not (Test-Path $Exe)) {
     throw "Executable not found at: $Exe`nRun without -SkipBuild first."
 }
 
-# ─── Step 2: (Optional) sign the exe ─────────────────────────────────────────
+# --- Step 2: Sign exe (optional) ----------------------------------------------
 
 if ($Sign) {
     Write-Step "Signing executable"
     $st = Find-SignTool
     Sign-File $Exe $st
-    Write-Host "  ✓ Signed $Exe" -ForegroundColor Green
+    Write-Host "  Signed $Exe" -ForegroundColor Green
 }
 
-# ─── Step 3: Package MSI ──────────────────────────────────────────────────────
+# --- Step 3: Package MSI ------------------------------------------------------
 
 if (-not $SkipPackage) {
     Write-Step "Packaging MSI"
@@ -182,7 +180,6 @@ if (-not $SkipPackage) {
 
     $wixExe = Ensure-WiX
 
-    # Add the UI extension (idempotent — wix extension add is a no-op if already present)
     Invoke-Checked { & $wixExe extension add $WixUIExt --global 2>$null }
 
     Write-Host "  Running: wix build ..."
@@ -193,17 +190,15 @@ if (-not $SkipPackage) {
             -out $OutMsi `
             -arch x64
     }
-    Write-Host "  ✓ MSI created  →  $OutMsi" -ForegroundColor Green
+    Write-Host "  MSI created  -->  $OutMsi" -ForegroundColor Green
 
-    # ─── Step 4: (Optional) sign the MSI ──────────────────────────────────────
     if ($Sign) {
         Write-Step "Signing MSI"
         $st = Find-SignTool
         Sign-File $OutMsi $st
-        Write-Host "  ✓ Signed $OutMsi" -ForegroundColor Green
+        Write-Host "  Signed $OutMsi" -ForegroundColor Green
     }
 
-    # ─── Summary ─────────────────────────────────────────────────────────────
     $size = [math]::Round((Get-Item $OutMsi).Length / 1MB, 2)
     Write-Host ""
     Write-Host "  Done!  $OutMsi  ($size MB)" -ForegroundColor Green

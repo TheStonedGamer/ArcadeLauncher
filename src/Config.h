@@ -24,6 +24,7 @@ struct EmulatorConfig {
     std::wstring duckstationPath;
     std::wstring pcsx2Path;
     std::wstring xeniaPath;
+    std::wstring xemuPath;
 
     std::wstring dolphinArgs;
     std::wstring ryujinxArgs;
@@ -34,6 +35,7 @@ struct EmulatorConfig {
     std::wstring duckstationArgs;
     std::wstring pcsx2Args;
     std::wstring xeniaArgs;
+    std::wstring xemuArgs;
 
     std::vector<std::wstring> dolphinRomDirs;
     std::vector<std::wstring> ryujinxRomDirs;
@@ -44,6 +46,7 @@ struct EmulatorConfig {
     std::vector<std::wstring> duckstationRomDirs;
     std::vector<std::wstring> pcsx2RomDirs;
     std::vector<std::wstring> xeniaRomDirs;
+    std::vector<std::wstring> xemuRomDirs;
 
     // Last downloaded release tag (empty = never downloaded via launcher)
     std::wstring dolphinTag;
@@ -55,6 +58,7 @@ struct EmulatorConfig {
     std::wstring duckstationTag;
     std::wstring pcsx2Tag;
     std::wstring xeniaTag;
+    std::wstring xemuTag;
 };
 
 struct AppConfig {

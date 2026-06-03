@@ -221,6 +221,7 @@ std::vector<Renderer::SidebarEntry> Renderer::BuildSidebarEntries(const RenderSt
     if (s.showPS1)     v.push_back({ L"PS1",      false, Platform::PS1     });
     if (s.showPS2)     v.push_back({ L"PS2",      false, Platform::PS2     });
     if (s.showXbox360) v.push_back({ L"Xbox 360", false, Platform::Xbox360 });
+    if (s.showXbox)    v.push_back({ L"Xbox",     false, Platform::Xbox    });
     if (s.showRepacks) v.push_back({ L"Repacks",  false, Platform::Repacks });
     return v;
 }

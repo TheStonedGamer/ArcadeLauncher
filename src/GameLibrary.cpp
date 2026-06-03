@@ -177,6 +177,25 @@ void GameLibrary::Save(const std::wstring& path) const {
     f.write(utf8.data(), utf8.size());
 }
 
+// Find the matching closing '}' for the '{' at `start`, correctly
+// skipping braces that appear inside quoted JSON strings.
+static size_t FindObjectEnd(const std::string& raw, size_t start) {
+    int depth = 0;
+    bool inStr = false;
+    for (size_t i = start; i < raw.size(); ++i) {
+        char c = raw[i];
+        if (inStr) {
+            if (c == '\\') { ++i; continue; }  // skip escaped char
+            if (c == '"')  inStr = false;
+        } else {
+            if      (c == '"') inStr = true;
+            else if (c == '{') ++depth;
+            else if (c == '}') { if (--depth == 0) return i; }
+        }
+    }
+    return std::string::npos;
+}
+
 void GameLibrary::Load(const std::wstring& path) {
     std::ifstream f(path);
     if (!f) return;
@@ -186,12 +205,14 @@ void GameLibrary::Load(const std::wstring& path) {
     std::lock_guard<std::mutex> lk(m_mutex);
     m_games.clear();
 
-    // Split on },{
+    // Walk the JSON array one top-level object at a time.
+    // FindObjectEnd handles '}' characters inside string values
+    // (e.g. from IGDB summaries), which raw find('}') could not.
     size_t pos = 0;
     while (true) {
         size_t start = raw.find('{', pos);
         if (start == std::string::npos) break;
-        size_t end = raw.find('}', start);
+        size_t end = FindObjectEnd(raw, start);
         if (end == std::string::npos) break;
         std::string obj = raw.substr(start, end - start + 1);
         pos = end + 1;

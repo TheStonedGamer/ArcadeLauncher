@@ -249,7 +249,7 @@ void EmulatorSetupWindow::Open(HWND parent, AppConfig& cfg,
     if (!hasExe(cfg.emulators.pcsx2Path))
         m_entries.push_back({
             L"PCSX2  \x2014  PlayStation 2 emulator",
-            { "PCSX2/pcsx2", L"windows-x86_64-Qt", L"pcsx2-qt.exe", L"pcsx2" },
+            { "PCSX2/pcsx2", L"windows-x64-Qt.7z", L"pcsx2-qt.exe", L"pcsx2" },
             [](AppConfig& c, const std::wstring& exe, const std::wstring& tag) {
                 c.emulators.pcsx2Path = exe;
                 c.emulators.pcsx2Tag  = tag;
@@ -259,11 +259,22 @@ void EmulatorSetupWindow::Open(HWND parent, AppConfig& cfg,
     if (!hasExe(cfg.emulators.xeniaPath))
         m_entries.push_back({
             L"Xenia Canary  \x2014  Xbox 360 emulator",
-            { "xenia-canary/xenia-canary", L"xenia_canary.zip",
+            { "xenia-canary/xenia-canary", L"xenia_canary_windows.zip",
               L"xenia_canary.exe", L"xenia-canary" },
             [](AppConfig& c, const std::wstring& exe, const std::wstring& tag) {
                 c.emulators.xeniaPath = exe;
                 c.emulators.xeniaTag  = tag;
+            }
+        });
+
+    if (!hasExe(cfg.emulators.xemuPath))
+        m_entries.push_back({
+            L"XEMU  \x2014  Original Xbox emulator",
+            { "xemu-project/xemu", L"win-x86_64-release.zip",
+              L"xemu.exe", L"xemu" },
+            [](AppConfig& c, const std::wstring& exe, const std::wstring& tag) {
+                c.emulators.xemuPath = exe;
+                c.emulators.xemuTag  = tag;
             }
         });
 

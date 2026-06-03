@@ -779,6 +779,7 @@ void App::ShowMenuBar() {
     addTool(IDM_TOOL_PS1,     L"Launch DuckStation",     emu.duckstationPath);
     addTool(IDM_TOOL_PS2,     L"Launch PCSX2",           emu.pcsx2Path);
     addTool(IDM_TOOL_XBOX360, L"Launch Xenia Canary",    emu.xeniaPath);
+    addTool(IDM_TOOL_XBOX,    L"Launch XEMU",             emu.xemuPath);
 
     HMENU hMenuBar = CreatePopupMenu();
     AppendMenuW(hMenuBar, MF_POPUP, (UINT_PTR)hTools, L"Tools");
@@ -810,6 +811,7 @@ void App::ShowMenuBar() {
     case IDM_TOOL_PS1:     launchStandalone(emu.duckstationPath,   emu.duckstationArgs);   break;
     case IDM_TOOL_PS2:     launchStandalone(emu.pcsx2Path,         emu.pcsx2Args);         break;
     case IDM_TOOL_XBOX360: launchStandalone(emu.xeniaPath,         emu.xeniaArgs);         break;
+    case IDM_TOOL_XBOX:    launchStandalone(emu.xemuPath,          emu.xemuArgs);          break;
     }
 }
 
@@ -910,6 +912,16 @@ void App::ScanAllPlatforms() {
         rc.emulatorArgs = emu.xeniaArgs.empty() ? L"{rom}" : emu.xeniaArgs;
         rc.romDirs      = emu.xeniaRomDirs;
         rc.extensions   = { L"xex", L"iso" };
+        scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
+    }
+
+    if (!emu.xemuPath.empty()) {
+        EmulatorRomConfig rc;
+        rc.platform     = Platform::Xbox;
+        rc.emulatorPath = emu.xemuPath;
+        rc.emulatorArgs = emu.xemuArgs.empty() ? L"{rom}" : emu.xemuArgs;
+        rc.romDirs      = emu.xemuRomDirs;
+        rc.extensions   = { L"iso", L"xbe" };
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 
@@ -1070,6 +1082,7 @@ void App::UpdateSidebarFlags() {
     m_renderState.showPS1     = true;
     m_renderState.showPS2     = true;
     m_renderState.showXbox360 = true;
+    m_renderState.showXbox    = true;
     m_renderState.showRepacks = !lib.customLibraries.empty();
     int count = Renderer::GetSidebarEntryCount(m_renderState);
     if (m_renderState.sidebarFocusIdx >= count)
@@ -1155,7 +1168,8 @@ void App::OpenEditTitle(int visibleIdx) {
                        g->platform == Platform::SNES    ||
                        g->platform == Platform::PS1     ||
                        g->platform == Platform::PS2     ||
-                       g->platform == Platform::Xbox360);
+                       g->platform == Platform::Xbox360 ||
+                       g->platform == Platform::Xbox);
 
     GameEditDialog dlg;
     dlg.Show(m_hwnd, g->title, isEmulated, g->igdbPlatformId);

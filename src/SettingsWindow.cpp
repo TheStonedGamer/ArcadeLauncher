@@ -412,7 +412,7 @@ void SettingsWindow::RebuildSidebarItems() {
     static const wchar_t* fixed[] = {
         L"General", L"Steam", L"Epic Games", L"GOG Galaxy",
         L"Dolphin", L"Ryujinx", L"RPCS3", L"N64", L"NES", L"SNES",
-        L"PS1", L"PS2", L"Xbox 360"
+        L"PS1", L"PS2", L"Xbox 360", L"Xbox"
     };
     for (auto* s : fixed)
         SendMessageW(m_sidebar, LB_ADDSTRING, 0, (LPARAM)s);
@@ -443,6 +443,7 @@ void SettingsWindow::SwitchPage(int idx) {
     case PAGE_PS1:     BuildPS1Page();     break;
     case PAGE_PS2:     BuildPS2Page();     break;
     case PAGE_XBOX360: BuildXbox360Page(); break;
+    case PAGE_XBOX:    BuildXboxPage();    break;
     default:
         if (idx >= PAGE_CUSTOM0) BuildCustomPage(idx - PAGE_CUSTOM0);
         break;
@@ -466,6 +467,7 @@ void SettingsWindow::SaveCurrentPage() {
     case PAGE_PS1:     SavePS1Page();     break;
     case PAGE_PS2:     SavePS2Page();     break;
     case PAGE_XBOX360: SaveXbox360Page(); break;
+    case PAGE_XBOX:    SaveXboxPage();    break;
     default:
         if (m_currentPage >= PAGE_CUSTOM0) SaveCustomPage(m_currentPage - PAGE_CUSTOM0);
         break;
@@ -487,6 +489,7 @@ void SettingsWindow::LoadCurrentPage() {
     case PAGE_PS1:     LoadPS1Page();     break;
     case PAGE_PS2:     LoadPS2Page();     break;
     case PAGE_XBOX360: LoadXbox360Page(); break;
+    case PAGE_XBOX:    LoadXboxPage();    break;
     default:
         if (m_currentPage >= PAGE_CUSTOM0) LoadCustomPage(m_currentPage - PAGE_CUSTOM0);
         break;
@@ -793,6 +796,25 @@ void SettingsWindow::BuildXbox360Page() {
     AddPC(Btn(m_hwnd, L"Remove",   ID_P_BTN4, K_BX, y + 68));
 }
 
+void SettingsWindow::BuildXboxPage() {
+    int y = PageHeader(m_hwnd, m_pageControls, L"Xbox Emulator");
+    AddPC(Group(m_hwnd, L" Executable ", K_CX, y, K_CW, 100));
+    AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
+    AddPC(Edit (m_hwnd, ID_P_EDIT1, K_CX + 58, y + 20, K_BX - K_CX - 64));
+    AddPC(Btn  (m_hwnd, L"Browse…",         ID_P_BTN1, K_BX, y + 20));
+    AddPC(Btn  (m_hwnd, L"Download latest", ID_P_BTN5, K_BX, y + 48));
+    AddPC(StatLabel(m_hwnd, L"Checking for updates\x2026", ID_P_STAT1,
+                    K_CX + 12, y + 76, K_CW - 24, 20));
+    y += 108;
+    AddPC(Group(m_hwnd, L" ROM directories ", K_CX, y, K_CW, 206));
+    AddPC(SmallLabel(m_hwnd,
+          L"Xbox games  (.iso  .xbe)",
+          K_CX + 12, y + 18, K_CW - 24));
+    AddPC(ListBox(m_hwnd, ID_P_LIST1, K_CX + 12, y + 40, K_LW, 148));
+    AddPC(Btn(m_hwnd, L"Add Dir…", ID_P_BTN3, K_BX, y + 40));
+    AddPC(Btn(m_hwnd, L"Remove",   ID_P_BTN4, K_BX, y + 68));
+}
+
 void SettingsWindow::BuildCustomPage(int /*libIdx*/) {
     int y = PageHeader(m_hwnd, m_pageControls, L"Custom Library");
 
@@ -1028,6 +1050,23 @@ void SettingsWindow::SaveXbox360Page() {
     }
 }
 
+void SettingsWindow::LoadXboxPage() {
+    auto& e = m_work.emulators;
+    SetWindowTextW(PC(ID_P_EDIT1), e.xemuPath.c_str());
+    VecToList(PC(ID_P_LIST1), e.xemuRomDirs);
+    SetVersionLabel(e.xemuTag, {});
+    CheckEmulatorUpdateAsync(m_hwnd, PAGE_XBOX, "xemu-project/xemu");
+}
+void SettingsWindow::SaveXboxPage() {
+    auto& e = m_work.emulators;
+    e.xemuPath    = GetTxt(PC(ID_P_EDIT1));
+    ListToVec(PC(ID_P_LIST1), e.xemuRomDirs);
+    if (m_cfg) {
+        m_cfg->emulators.xemuPath    = e.xemuPath;
+        m_cfg->emulators.xemuRomDirs = e.xemuRomDirs;
+    }
+}
+
 void SettingsWindow::LoadCustomPage(int idx) {
     auto& libs = m_work.libraries.customLibraries;
     if (idx < 0 || idx >= (int)libs.size()) return;
@@ -1197,7 +1236,7 @@ void SettingsWindow::HandlePageCommand(int id) {
             EnableWindow(PC(ID_P_BTN5), FALSE);
             SetWindowTextW(PC(ID_P_BTN5), L"Downloading…");
             DownloadEmulatorAsync(m_hwnd, PAGE_PS2,
-                { "PCSX2/pcsx2", L"windows-x86_64-Qt",
+                { "PCSX2/pcsx2", L"windows-x64-Qt.7z",
                   L"pcsx2-qt.exe", L"pcsx2" },
                 GetAppDataPath());
         }
@@ -1214,8 +1253,25 @@ void SettingsWindow::HandlePageCommand(int id) {
             EnableWindow(PC(ID_P_BTN5), FALSE);
             SetWindowTextW(PC(ID_P_BTN5), L"Downloading…");
             DownloadEmulatorAsync(m_hwnd, PAGE_XBOX360,
-                { "xenia-canary/xenia-canary", L"xenia_canary.zip",
+                { "xenia-canary/xenia-canary", L"xenia_canary_windows.zip",
                   L"xenia_canary.exe", L"xenia-canary" },
+                GetAppDataPath());
+        }
+        break;
+
+    case PAGE_XBOX:
+        if (id == ID_P_BTN1) {
+            std::wstring p = BrowseExe(GetTxt(PC(ID_P_EDIT1)));
+            if (!p.empty()) SetWindowTextW(PC(ID_P_EDIT1), p.c_str());
+        }
+        else if (id == ID_P_BTN3) ListAddPath(PC(ID_P_LIST1));
+        else if (id == ID_P_BTN4) ListRemoveSel(PC(ID_P_LIST1));
+        else if (id == ID_P_BTN5) {
+            EnableWindow(PC(ID_P_BTN5), FALSE);
+            SetWindowTextW(PC(ID_P_BTN5), L"Downloading…");
+            DownloadEmulatorAsync(m_hwnd, PAGE_XBOX,
+                { "xemu-project/xemu", L"win-x86_64-release.zip",
+                  L"xemu.exe", L"xemu" },
                 GetAppDataPath());
         }
         break;
@@ -1347,6 +1403,7 @@ void SettingsWindow::SaveTagForPage(int page, const std::wstring& tag) {
     case PAGE_PS1:      ew.duckstationTag  = ec.duckstationTag  = tag; break;
     case PAGE_PS2:      ew.pcsx2Tag        = ec.pcsx2Tag        = tag; break;
     case PAGE_XBOX360:  ew.xeniaTag        = ec.xeniaTag        = tag; break;
+    case PAGE_XBOX:     ew.xemuTag         = ec.xemuTag         = tag; break;
     }
 }
 
@@ -1378,6 +1435,8 @@ void SettingsWindow::SetPathForPage(int page, const std::wstring& exePath) {
         ew.pcsx2Path       = ec.pcsx2Path       = exePath; break;
     case PAGE_XBOX360:
         ew.xeniaPath       = ec.xeniaPath       = exePath; break;
+    case PAGE_XBOX:
+        ew.xemuPath        = ec.xemuPath        = exePath; break;
     }
 }
 
@@ -1393,6 +1452,7 @@ std::wstring SettingsWindow::InstalledTagForPage(int page) const {
     case PAGE_PS1:      return e.duckstationTag;
     case PAGE_PS2:      return e.pcsx2Tag;
     case PAGE_XBOX360:  return e.xeniaTag;
+    case PAGE_XBOX:     return e.xemuTag;
     default:            return {};
     }
 }
@@ -1408,6 +1468,7 @@ std::string SettingsWindow::GithubRepoForPage(int page) const {
     case PAGE_PS1:      return "stenzek/duckstation";
     case PAGE_PS2:      return "PCSX2/pcsx2";
     case PAGE_XBOX360:  return "xenia-canary/xenia-canary";
+    case PAGE_XBOX:     return "xemu-project/xemu";
     default:            return {};
     }
 }

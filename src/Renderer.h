@@ -32,6 +32,7 @@ struct RenderState {
     bool showPS1     = true;
     bool showPS2     = true;
     bool showXbox360 = true;
+    bool showXbox    = true;
     bool showRepacks = true;
 
     bool metaScanning = false;

@@ -21,7 +21,8 @@ public:
     static constexpr int PAGE_PS1     = 10;
     static constexpr int PAGE_PS2     = 11;
     static constexpr int PAGE_XBOX360 = 12;
-    static constexpr int PAGE_CUSTOM0 = 13;
+    static constexpr int PAGE_XBOX    = 13;
+    static constexpr int PAGE_CUSTOM0 = 14;
 
     void Open(HWND parent, AppConfig& cfg,
               std::function<void()> onSave,
@@ -78,6 +79,7 @@ private:
     void BuildPS1Page();
     void BuildPS2Page();
     void BuildXbox360Page();
+    void BuildXboxPage();
     void BuildCustomPage(int libIdx);
 
     void LoadGeneralPage();   void SaveGeneralPage();
@@ -93,6 +95,7 @@ private:
     void LoadPS1Page();       void SavePS1Page();
     void LoadPS2Page();       void SavePS2Page();
     void LoadXbox360Page();   void SaveXbox360Page();
+    void LoadXboxPage();      void SaveXboxPage();
     void LoadCustomPage(int); void SaveCustomPage(int);
 
     void HandlePageCommand(int id);

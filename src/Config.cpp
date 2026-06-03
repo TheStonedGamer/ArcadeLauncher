@@ -133,6 +133,7 @@ void Config::Save(const std::wstring& path) const {
     out += "  \"duckstationPath\":\"" + Escape(e.duckstationPath) + "\",\n";
     out += "  \"pcsx2Path\":\""       + Escape(e.pcsx2Path)       + "\",\n";
     out += "  \"xeniaPath\":\""       + Escape(e.xeniaPath)       + "\",\n";
+    out += "  \"xemuPath\":\""        + Escape(e.xemuPath)        + "\",\n";
     out += "  \"dolphinArgs\":\"" + Escape(e.dolphinArgs) + "\",\n";
     out += "  \"ryujinxArgs\":\"" + Escape(e.ryujinxArgs) + "\",\n";
     out += "  \"rpcs3Args\":\""   + Escape(e.rpcs3Args)   + "\",\n";
@@ -142,6 +143,7 @@ void Config::Save(const std::wstring& path) const {
     out += "  \"duckstationArgs\":\"" + Escape(e.duckstationArgs) + "\",\n";
     out += "  \"pcsx2Args\":\""       + Escape(e.pcsx2Args)       + "\",\n";
     out += "  \"xeniaArgs\":\""       + Escape(e.xeniaArgs)       + "\",\n";
+    out += "  \"xemuArgs\":\""        + Escape(e.xemuArgs)        + "\",\n";
     out += writeArr(e.dolphinRomDirs, "dolphinRomDirs") + ",\n";
     out += writeArr(e.ryujinxRomDirs, "ryujinxRomDirs") + ",\n";
     out += writeArr(e.rpcs3RomDirs,   "rpcs3RomDirs")   + ",\n";
@@ -151,6 +153,7 @@ void Config::Save(const std::wstring& path) const {
     out += writeArr(e.duckstationRomDirs,  "duckstationRomDirs")  + ",\n";
     out += writeArr(e.pcsx2RomDirs,        "pcsx2RomDirs")        + ",\n";
     out += writeArr(e.xeniaRomDirs,        "xeniaRomDirs")        + ",\n";
+    out += writeArr(e.xemuRomDirs,         "xemuRomDirs")         + ",\n";
     out += "  \"dolphinTag\":\""      + Escape(e.dolphinTag)      + "\",\n";
     out += "  \"ryujinxTag\":\""      + Escape(e.ryujinxTag)      + "\",\n";
     out += "  \"rpcs3Tag\":\""        + Escape(e.rpcs3Tag)        + "\",\n";
@@ -159,7 +162,8 @@ void Config::Save(const std::wstring& path) const {
     out += "  \"snesTag\":\""         + Escape(e.snesTag)         + "\",\n";
     out += "  \"duckstationTag\":\"" + Escape(e.duckstationTag)   + "\",\n";
     out += "  \"pcsx2Tag\":\""        + Escape(e.pcsx2Tag)        + "\",\n";
-    out += "  \"xeniaTag\":\""        + Escape(e.xeniaTag)        + "\"\n";
+    out += "  \"xeniaTag\":\""        + Escape(e.xeniaTag)        + "\",\n";
+    out += "  \"xemuTag\":\""         + Escape(e.xemuTag)         + "\"\n";
     out += "}\n";
 
     std::ofstream f(path);
@@ -228,6 +232,7 @@ void Config::Load(const std::wstring& path) {
     m_cfg.emulators.duckstationPath  = ToWide(ReadField(json, "duckstationPath"));
     m_cfg.emulators.pcsx2Path        = ToWide(ReadField(json, "pcsx2Path"));
     m_cfg.emulators.xeniaPath        = ToWide(ReadField(json, "xeniaPath"));
+    m_cfg.emulators.xemuPath         = ToWide(ReadField(json, "xemuPath"));
     m_cfg.emulators.dolphinArgs    = ToWide(ReadField(json, "dolphinArgs"));
     m_cfg.emulators.ryujinxArgs    = ToWide(ReadField(json, "ryujinxArgs"));
     m_cfg.emulators.rpcs3Args      = ToWide(ReadField(json, "rpcs3Args"));
@@ -237,6 +242,7 @@ void Config::Load(const std::wstring& path) {
     m_cfg.emulators.duckstationArgs  = ToWide(ReadField(json, "duckstationArgs"));
     m_cfg.emulators.pcsx2Args        = ToWide(ReadField(json, "pcsx2Args"));
     m_cfg.emulators.xeniaArgs        = ToWide(ReadField(json, "xeniaArgs"));
+    m_cfg.emulators.xemuArgs         = ToWide(ReadField(json, "xemuArgs"));
     m_cfg.emulators.dolphinRomDirs = ReadStringArray(json, "dolphinRomDirs");
     m_cfg.emulators.ryujinxRomDirs = ReadStringArray(json, "ryujinxRomDirs");
     m_cfg.emulators.rpcs3RomDirs   = ReadStringArray(json, "rpcs3RomDirs");
@@ -246,6 +252,7 @@ void Config::Load(const std::wstring& path) {
     m_cfg.emulators.duckstationRomDirs = ReadStringArray(json, "duckstationRomDirs");
     m_cfg.emulators.pcsx2RomDirs       = ReadStringArray(json, "pcsx2RomDirs");
     m_cfg.emulators.xeniaRomDirs       = ReadStringArray(json, "xeniaRomDirs");
+    m_cfg.emulators.xemuRomDirs        = ReadStringArray(json, "xemuRomDirs");
     m_cfg.emulators.dolphinTag     = ToWide(ReadField(json, "dolphinTag"));
     m_cfg.emulators.ryujinxTag     = ToWide(ReadField(json, "ryujinxTag"));
     m_cfg.emulators.rpcs3Tag       = ToWide(ReadField(json, "rpcs3Tag"));
@@ -255,4 +262,5 @@ void Config::Load(const std::wstring& path) {
     m_cfg.emulators.duckstationTag   = ToWide(ReadField(json, "duckstationTag"));
     m_cfg.emulators.pcsx2Tag         = ToWide(ReadField(json, "pcsx2Tag"));
     m_cfg.emulators.xeniaTag         = ToWide(ReadField(json, "xeniaTag"));
+    m_cfg.emulators.xemuTag          = ToWide(ReadField(json, "xemuTag"));
 }

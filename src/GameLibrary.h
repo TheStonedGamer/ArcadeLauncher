@@ -14,6 +14,7 @@ enum class Platform {
     PS1,
     PS2,
     Xbox360,
+    Xbox,
     Repacks   // formerly "Custom" — FitGirl repacks, cracked installs, manual .exe
 };
 
@@ -31,6 +32,7 @@ inline std::wstring PlatformName(Platform p) {
     case Platform::PS1:     return L"PS1";
     case Platform::PS2:     return L"PS2";
     case Platform::Xbox360: return L"Xbox360";
+    case Platform::Xbox:    return L"Xbox";
     default:                return L"Repacks";
     }
 }
@@ -49,6 +51,7 @@ inline D2D1_COLOR_F PlatformColor(Platform p) {
     case Platform::PS1:     return D2D1::ColorF(0x1B6DB9);  // PS1 blue
     case Platform::PS2:     return D2D1::ColorF(0x002F6C);  // PS2 dark blue
     case Platform::Xbox360: return D2D1::ColorF(0x107C10);  // Xbox green
+    case Platform::Xbox:    return D2D1::ColorF(0x52B043);  // original Xbox green (lighter)
     default:                return D2D1::ColorF(0xF5A623);  // FitGirl orange
     }
 }

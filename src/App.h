@@ -118,6 +118,7 @@ private:
     static constexpr UINT IDM_TOOL_PS1     = 6007;
     static constexpr UINT IDM_TOOL_PS2     = 6008;
     static constexpr UINT IDM_TOOL_XBOX360 = 6009;
+    static constexpr UINT IDM_TOOL_XBOX    = 6010;
 
     // Tray menu command IDs
     static constexpr UINT IDM_TRAY_SHOW    = 7001;

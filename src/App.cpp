@@ -818,7 +818,7 @@ void App::ScanAllPlatforms() {
         rc.emulatorPath = emu.snesPath;
         rc.emulatorArgs = emu.snesArgs.empty() ? L"{rom}" : emu.snesArgs;
         rc.romDirs      = emu.snesRomDirs;
-        rc.extensions   = { L"sfc", L"smc", L"fig", L"bs", L"st" };
+        rc.extensions   = { L"sfc", L"smc", L"fig", L"bs", L"st", L"zip" };
         scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
     }
 

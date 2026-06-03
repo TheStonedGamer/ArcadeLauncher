@@ -865,6 +865,12 @@ void SettingsWindow::SaveSnesPage() {
     auto& e = m_work.emulators;
     e.snesPath    = GetTxt(PC(ID_P_EDIT1));
     ListToVec(PC(ID_P_LIST1), e.snesRomDirs);
+    // Mirror directly to live config — same pattern as SetPathForPage for the exe path,
+    // ensures ROM dirs survive regardless of when *m_cfg = m_work runs.
+    if (m_cfg) {
+        m_cfg->emulators.snesPath    = e.snesPath;
+        m_cfg->emulators.snesRomDirs = e.snesRomDirs;
+    }
 }
 
 void SettingsWindow::LoadCustomPage(int idx) {

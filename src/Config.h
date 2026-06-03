@@ -3,15 +3,10 @@
 
 struct CustomLibraryConfig {
     std::wstring name    = L"Custom Library";
-    bool enabled         = true;
     std::vector<std::wstring> dirs;
 };
 
 struct LibraryConfig {
-    bool steamEnabled  = true;
-    bool epicEnabled   = true;
-    bool gogEnabled    = true;
-
     std::wstring steamPath;                        // Steam install root override; empty = registry
     std::vector<std::wstring> steamExtraFolders;   // extra steamapps dirs beyond what VDF reports
     std::vector<std::wstring> epicManifestDirs;    // override list; empty = auto-detect

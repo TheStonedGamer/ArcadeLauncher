@@ -252,7 +252,7 @@ LRESULT SettingsWindow::HandleMsg(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         if (id == ID_ADD_LIB) {
             SaveCurrentPage();
-            m_work.libraries.customLibraries.push_back({ L"New Library", true, {} });
+            m_work.libraries.customLibraries.push_back({ L"New Library", {} });
             RebuildSidebarItems();
             int np = PAGE_CUSTOM0 + (int)m_work.libraries.customLibraries.size() - 1;
             SendMessageW(m_sidebar, LB_SETCURSEL, np, 0);
@@ -528,10 +528,6 @@ void SettingsWindow::BuildGeneralPage() {
 void SettingsWindow::BuildSteamPage() {
     int y = PageHeader(m_hwnd, m_pageControls, L"Steam");
 
-    AddPC(Check(m_hwnd, L"Enable Steam library  (uncheck to hide from sidebar and skip scanning)",
-                ID_P_CHK1, K_CX, y, K_CW));
-    y += 30;
-
     AddPC(Group(m_hwnd, L" Steam root path ", K_CX, y, K_CW, 70));
     AddPC(Label(m_hwnd, L"Path:", K_CX + 12, y + 22, 44));
     AddPC(Edit (m_hwnd, ID_P_EDIT1, K_CX + 58, y + 20, K_BX - K_CX - 64));
@@ -553,10 +549,6 @@ void SettingsWindow::BuildSteamPage() {
 void SettingsWindow::BuildEpicPage() {
     int y = PageHeader(m_hwnd, m_pageControls, L"Epic Games");
 
-    AddPC(Check(m_hwnd, L"Enable Epic Games library  (uncheck to hide from sidebar and skip scanning)",
-                ID_P_CHK1, K_CX, y, K_CW));
-    y += 30;
-
     AddPC(Group(m_hwnd, L" Manifest directories ", K_CX, y, K_CW, 250));
     AddPC(Label(m_hwnd,
           L"Epic stores game metadata in .item manifest files. Add entries here "
@@ -572,9 +564,6 @@ void SettingsWindow::BuildEpicPage() {
 void SettingsWindow::BuildGogPage() {
     int y = PageHeader(m_hwnd, m_pageControls, L"GOG Galaxy");
 
-    AddPC(Check(m_hwnd, L"Enable GOG Galaxy library  (uncheck to hide from sidebar and skip scanning)",
-                ID_P_CHK1, K_CX, y, K_CW));
-    y += 30;
 
     AddPC(Group(m_hwnd, L" Detection ", K_CX, y, K_CW, 66));
     AddPC(Label(m_hwnd,
@@ -736,8 +725,7 @@ void SettingsWindow::BuildCustomPage(int /*libIdx*/) {
     int y = PageHeader(m_hwnd, m_pageControls, L"Custom Library");
 
     AddPC(Label(m_hwnd, L"Name:", K_CX, y + 4, 46));
-    AddPC(Edit (m_hwnd, ID_P_EDIT1, K_CX + 50, y + 2, K_CW - 50 - 130));
-    AddPC(Check(m_hwnd, L"Show in sidebar", ID_P_CHK1, K_CX + K_CW - 126, y + 2, 122));
+    AddPC(Edit (m_hwnd, ID_P_EDIT1, K_CX + 50, y + 2, K_CW - 50));
     y += 32;
 
     AddPC(Group(m_hwnd, L" Directories to scan ", K_CX, y, K_CW, 240));
@@ -770,33 +758,27 @@ void SettingsWindow::SaveGeneralPage() {
 
 void SettingsWindow::LoadSteamPage() {
     auto& lb = m_work.libraries;
-    Chk(PC(ID_P_CHK1), lb.steamEnabled);
     SetWindowTextW(PC(ID_P_EDIT1), lb.steamPath.c_str());
     VecToList(PC(ID_P_LIST1), lb.steamExtraFolders);
 }
 void SettingsWindow::SaveSteamPage() {
     auto& lb = m_work.libraries;
-    lb.steamEnabled = IsChk(PC(ID_P_CHK1));
     lb.steamPath    = GetTxt(PC(ID_P_EDIT1));
     ListToVec(PC(ID_P_LIST1), lb.steamExtraFolders);
 }
 
 void SettingsWindow::LoadEpicPage() {
     auto& lb = m_work.libraries;
-    Chk(PC(ID_P_CHK1), lb.epicEnabled);
     VecToList(PC(ID_P_LIST1), lb.epicManifestDirs);
 }
 void SettingsWindow::SaveEpicPage() {
     auto& lb = m_work.libraries;
-    lb.epicEnabled = IsChk(PC(ID_P_CHK1));
     ListToVec(PC(ID_P_LIST1), lb.epicManifestDirs);
 }
 
 void SettingsWindow::LoadGogPage() {
-    Chk(PC(ID_P_CHK1), m_work.libraries.gogEnabled);
 }
 void SettingsWindow::SaveGogPage() {
-    m_work.libraries.gogEnabled = IsChk(PC(ID_P_CHK1));
 }
 
 void SettingsWindow::LoadDolphinPage() {
@@ -889,14 +871,12 @@ void SettingsWindow::LoadCustomPage(int idx) {
     auto& libs = m_work.libraries.customLibraries;
     if (idx < 0 || idx >= (int)libs.size()) return;
     SetWindowTextW(PC(ID_P_EDIT1), libs[idx].name.c_str());
-    Chk(PC(ID_P_CHK1), libs[idx].enabled);
     VecToList(PC(ID_P_LIST1), libs[idx].dirs);
 }
 void SettingsWindow::SaveCustomPage(int idx) {
     auto& libs = m_work.libraries.customLibraries;
     if (idx < 0 || idx >= (int)libs.size()) return;
     libs[idx].name    = GetTxt(PC(ID_P_EDIT1));
-    libs[idx].enabled = IsChk(PC(ID_P_CHK1));
     ListToVec(PC(ID_P_LIST1), libs[idx].dirs);
     // Sync sidebar label
     std::wstring lbl = libs[idx].name;

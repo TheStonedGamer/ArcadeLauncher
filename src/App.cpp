@@ -757,12 +757,9 @@ void App::ScanAllPlatforms() {
     auto& emu = m_config.Get().emulators;
 
     std::vector<std::unique_ptr<IScanner>> scanners;
-    if (lib.steamEnabled)
-        scanners.push_back(std::make_unique<SteamScanner>(lib.steamPath, lib.steamExtraFolders));
-    if (lib.epicEnabled)
-        scanners.push_back(std::make_unique<EpicScanner>(lib.epicManifestDirs));
-    if (lib.gogEnabled)
-        scanners.push_back(std::make_unique<GogScanner>());
+    scanners.push_back(std::make_unique<SteamScanner>(lib.steamPath, lib.steamExtraFolders));
+    scanners.push_back(std::make_unique<EpicScanner>(lib.epicManifestDirs));
+    scanners.push_back(std::make_unique<GogScanner>());
 
     if (!emu.dolphinPath.empty()) {
         EmulatorRomConfig dc;
@@ -833,7 +830,6 @@ void App::ScanAllPlatforms() {
 
     // Custom libraries: one level deep, each subdir is one game
     for (auto& cl : lib.customLibraries) {
-        if (!cl.enabled) continue;
         for (auto& rootDir : cl.dirs) {
             WIN32_FIND_DATAW fd;
             HANDLE h = FindFirstFileW((rootDir + L"\\*").c_str(), &fd);
@@ -965,17 +961,16 @@ void App::ApplyFilter() {
 void App::UpdateSidebarFlags() {
     auto& lib = m_config.Get().libraries;
     auto& emu = m_config.Get().emulators;
-    m_renderState.showSteam   = lib.steamEnabled;
-    m_renderState.showEpic    = lib.epicEnabled;
-    m_renderState.showGog     = lib.gogEnabled;
+    m_renderState.showSteam   = true;
+    m_renderState.showEpic    = true;
+    m_renderState.showGog     = true;
     m_renderState.showDolphin = true;
     m_renderState.showRyujinx = true;
     m_renderState.showRPCS3   = true;
     m_renderState.showN64     = true;
     m_renderState.showNES     = true;
     m_renderState.showSNES    = true;
-    m_renderState.showRepacks = std::any_of(lib.customLibraries.begin(),
-        lib.customLibraries.end(), [](const CustomLibraryConfig& cl) { return cl.enabled; });
+    m_renderState.showRepacks = !lib.customLibraries.empty();
     int count = Renderer::GetSidebarEntryCount(m_renderState);
     if (m_renderState.sidebarFocusIdx >= count)
         m_renderState.sidebarFocusIdx = count - 1;

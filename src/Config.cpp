@@ -113,9 +113,6 @@ void Config::Save(const std::wstring& path) const {
     out += "  \"igdbAccessToken\":\"" + Escape(m_cfg.igdbAccessToken) + "\",\n";
     out += "  \"igdbTokenExpiry\":" + std::to_string(m_cfg.igdbTokenExpiry) + ",\n";
     // Library settings
-    out += "  \"steamEnabled\":"  + B(lb.steamEnabled)  + ",\n";
-    out += "  \"epicEnabled\":"   + B(lb.epicEnabled)   + ",\n";
-    out += "  \"gogEnabled\":"    + B(lb.gogEnabled)    + ",\n";
     out += "  \"steamPath\":\"" + Escape(lb.steamPath) + "\",\n";
     out += writeArr(lb.steamExtraFolders, "steamExtraFolders") + ",\n";
     out += writeArr(lb.epicManifestDirs, "epicManifestDirs") + ",\n";
@@ -124,7 +121,6 @@ void Config::Save(const std::wstring& path) const {
         auto& cl = lb.customLibraries[i];
         std::string idx = std::to_string(i);
         out += "  \"customLib" + idx + "Name\":\"" + Escape(cl.name)    + "\",\n";
-        out += "  \"customLib" + idx + "Enabled\":" + B(cl.enabled)     + ",\n";
         out += writeArr(cl.dirs, "customLib" + idx + "Dirs")             + ",\n";
     }
     // Emulator settings
@@ -178,18 +174,6 @@ void Config::Load(const std::wstring& path) {
     m_cfg.igdbAccessToken    = ToWide(ReadField(json, "igdbAccessToken"));
     m_cfg.igdbTokenExpiry    = ReadInt64(json, "igdbTokenExpiry");
 
-    // Library settings — default true if key absent (existing installs keep behaviour)
-    auto readBoolDefault = [&](const std::string& key, bool def) {
-        std::string s = "\"" + key + "\":";
-        size_t p = json.find(s);
-        if (p == std::string::npos) return def;
-        p += s.size();
-        while (p < json.size() && json[p] == ' ') ++p;
-        return json.substr(p, 4) == "true";
-    };
-    m_cfg.libraries.steamEnabled = readBoolDefault("steamEnabled", true);
-    m_cfg.libraries.epicEnabled  = readBoolDefault("epicEnabled",  true);
-    m_cfg.libraries.gogEnabled   = readBoolDefault("gogEnabled",   true);
     m_cfg.libraries.steamPath         = ToWide(ReadField(json, "steamPath"));
     m_cfg.libraries.steamExtraFolders = ReadStringArray(json, "steamExtraFolders");
     m_cfg.libraries.epicManifestDirs  = ReadStringArray(json, "epicManifestDirs");
@@ -206,7 +190,6 @@ void Config::Load(const std::wstring& path) {
         std::string idx = std::to_string(i);
         CustomLibraryConfig cl;
         cl.name    = ToWide(ReadField(json, "customLib" + idx + "Name"));
-        cl.enabled = readBoolDefault("customLib" + idx + "Enabled", true);
         cl.dirs    = ReadStringArray(json, "customLib" + idx + "Dirs");
         if (cl.name.empty()) cl.name = L"Custom Library";
         m_cfg.libraries.customLibraries.push_back(std::move(cl));
@@ -219,7 +202,6 @@ void Config::Load(const std::wstring& path) {
         if (!old.empty()) {
             CustomLibraryConfig cl;
             cl.name = L"Repacks";
-            cl.enabled = readBoolDefault("repacksEnabled", true);
             cl.dirs = std::move(old);
             m_cfg.libraries.customLibraries.push_back(std::move(cl));
         }

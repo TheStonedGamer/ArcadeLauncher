@@ -195,6 +195,34 @@ bool PlatformIcons::HttpDownload(const std::wstring& url, const std::wstring& de
     return ok;
 }
 
+// ── Console icon cache filenames and download URLs ────────────────────────────
+
+struct ConsoleIconEntry {
+    Platform    platform;
+    const wchar_t* cacheFile;  // filename under AppData/ArcadeLauncher
+    const wchar_t* primaryUrl;
+    const wchar_t* fallbackUrl;
+};
+
+static const ConsoleIconEntry kConsoleIcons[] = {
+    { Platform::PS1,
+      L"icon_ps.ico",
+      L"https://www.playstation.com/favicon.ico",
+      L"https://www.sony.com/favicon.ico" },
+    { Platform::PS2,
+      L"icon_ps.ico",   // shares the PlayStation favicon with PS1
+      L"https://www.playstation.com/favicon.ico",
+      L"https://www.sony.com/favicon.ico" },
+    { Platform::Xbox360,
+      L"icon_xbox.ico",
+      L"https://www.xbox.com/favicon.ico",
+      L"https://www.microsoft.com/favicon.ico" },
+    { Platform::Xbox,
+      L"icon_xbox.ico", // shares Xbox favicon with Xbox 360
+      L"https://www.xbox.com/favicon.ico",
+      L"https://www.microsoft.com/favicon.ico" },
+};
+
 // ── Load all icons ────────────────────────────────────────────────────────────
 
 void PlatformIcons::Load(const EmulatorConfig& emuCfg,
@@ -204,18 +232,16 @@ void PlatformIcons::Load(const EmulatorConfig& emuCfg,
         { Platform::Steam,   FindSteamExe() },
         { Platform::Epic,    FindEpicExe() },
         { Platform::GOG,     FindGogExe() },
-        // Use configured paths (FindXxx checks the path first, then auto-detects)
         { Platform::Dolphin, FindDolphinExe(emuCfg.dolphinPath) },
         { Platform::Ryujinx, FindRyujinxExe(emuCfg.ryujinxPath) },
-        // Emulators managed by the launcher — use configured path directly
-        { Platform::RPCS3,   emuCfg.rpcs3Path        },
-        { Platform::N64,     emuCfg.n64Path          },
-        { Platform::NES,     emuCfg.nesPath          },
-        { Platform::SNES,    emuCfg.snesPath         },
-        { Platform::PS1,     emuCfg.duckstationPath  },
-        { Platform::PS2,     emuCfg.pcsx2Path        },
-        { Platform::Xbox360, emuCfg.xeniaPath        },
-        { Platform::Xbox,    emuCfg.xemuPath         },
+        { Platform::RPCS3,   emuCfg.rpcs3Path       },
+        { Platform::N64,     emuCfg.n64Path         },
+        { Platform::NES,     emuCfg.nesPath         },
+        { Platform::SNES,    emuCfg.snesPath        },
+        { Platform::PS1,     emuCfg.duckstationPath },
+        { Platform::PS2,     emuCfg.pcsx2Path       },
+        { Platform::Xbox360, emuCfg.xeniaPath       },
+        { Platform::Xbox,    emuCfg.xemuPath        },
     };
 
     for (auto& e : entries) {
@@ -225,12 +251,50 @@ void PlatformIcons::Load(const EmulatorConfig& emuCfg,
         if (bmp) m_icons[(int)e.p] = std::move(bmp);
     }
 
-    // Repacks: load from cache if already downloaded (non-blocking)
-    // First-time download happens asynchronously via TryDownloadAndLoadRepacks()
-    std::wstring iconPath = GetAppDataPath() + L"\\repacks_icon.png";
-    if (FileExists(iconPath)) {
-        auto bmp = LoadFromFile(iconPath, rt, wic);
+    // Repacks: load from cache (non-blocking; async download via TryDownloadAndLoadRepacks)
+    std::wstring appDir = GetAppDataPath();
+    std::wstring repacksPath = appDir + L"\\repacks_icon.png";
+    if (FileExists(repacksPath)) {
+        auto bmp = LoadFromFile(repacksPath, rt, wic);
         if (bmp) m_icons[(int)Platform::Repacks] = std::move(bmp);
+    }
+
+    // Console platforms: if exe extraction didn't produce an icon, fall back to
+    // the cached favicon (downloaded asynchronously via DownloadConsoleIcons).
+    for (auto& ci : kConsoleIcons) {
+        if (m_icons.count((int)ci.platform)) continue;  // already have it from exe
+        std::wstring path = appDir + L"\\" + ci.cacheFile;
+        if (!FileExists(path)) continue;
+        auto bmp = LoadFromFile(path, rt, wic);
+        if (bmp) m_icons[(int)ci.platform] = std::move(bmp);
+    }
+}
+
+bool PlatformIcons::DownloadConsoleIcons(const std::wstring& appDataDir) {
+    // PS1 and PS2 share one cached file; Xbox and Xbox360 share another.
+    // Download each unique file only once.
+    const std::wstring psFile   = appDataDir + L"\\icon_ps.ico";
+    const std::wstring xboxFile = appDataDir + L"\\icon_xbox.ico";
+
+    bool any = false;
+    if (!FileExists(psFile)) {
+        any |= HttpDownload(L"https://www.playstation.com/favicon.ico", psFile)
+            || HttpDownload(L"https://www.sony.com/favicon.ico",        psFile);
+    }
+    if (!FileExists(xboxFile)) {
+        any |= HttpDownload(L"https://www.xbox.com/favicon.ico",        xboxFile)
+            || HttpDownload(L"https://www.microsoft.com/favicon.ico",   xboxFile);
+    }
+    return any;
+}
+
+void PlatformIcons::TryLoadConsoleIcons(ID2D1RenderTarget* rt, IWICImagingFactory* wic) {
+    std::wstring appDir = GetAppDataPath();
+    for (auto& ci : kConsoleIcons) {
+        std::wstring path = appDir + L"\\" + ci.cacheFile;
+        if (!FileExists(path)) continue;
+        auto bmp = LoadFromFile(path, rt, wic);
+        if (bmp) m_icons[(int)ci.platform] = std::move(bmp);
     }
 }
 

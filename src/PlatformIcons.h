@@ -27,9 +27,16 @@ public:
     // Returns path to the cached file, or empty on failure.
     static std::wstring DownloadRepacksIcon(const std::wstring& appDataDir);
 
+    // Download PS1/PS2/Xbox/Xbox360 favicons to appDataDir if not cached yet.
+    // Returns true if at least one icon was downloaded.
+    static bool DownloadConsoleIcons(const std::wstring& appDataDir);
+
     // Called from the render thread after a background download completes.
     // Returns true if the bitmap was loaded and stored.
     bool TryDownloadAndLoadRepacks(ID2D1RenderTarget* rt, IWICImagingFactory* wic);
+
+    // (Re-)load cached console icon files; call on the render thread.
+    void TryLoadConsoleIcons(ID2D1RenderTarget* rt, IWICImagingFactory* wic);
 
 private:
     ComPtr<ID2D1Bitmap> LoadFromExe(const std::wstring& exePath,

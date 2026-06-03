@@ -106,12 +106,17 @@ bool App::Initialize(HINSTANCE hInstance, bool startInTray) {
     // Once the file is on disk, post WM_USER+3 so the render thread can create
     // the D2D bitmap (D2D is single-threaded; bitmap creation must stay on this thread).
     {
-        std::wstring iconCachePath = GetAppDataPath() + L"\\repacks_icon.png";
-        if (GetFileAttributesW(iconCachePath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-            std::thread([this]() {
-                std::wstring appDir = GetAppDataPath();
-                if (!PlatformIcons::DownloadRepacksIcon(appDir).empty())
-                    PostMessageW(m_hwnd, WM_USER + 3, 0, 0);
+        std::wstring appDir  = GetAppDataPath();
+        bool needRepacks     = GetFileAttributesW((appDir + L"\\repacks_icon.png").c_str()) == INVALID_FILE_ATTRIBUTES;
+        bool needConsole     = GetFileAttributesW((appDir + L"\\icon_ps.ico").c_str())       == INVALID_FILE_ATTRIBUTES
+                            || GetFileAttributesW((appDir + L"\\icon_xbox.ico").c_str())     == INVALID_FILE_ATTRIBUTES;
+        if (needRepacks || needConsole) {
+            std::thread([this, needRepacks, needConsole]() {
+                std::wstring dir = GetAppDataPath();
+                bool any = false;
+                if (needRepacks)  any |= !PlatformIcons::DownloadRepacksIcon(dir).empty();
+                if (needConsole)  any |=  PlatformIcons::DownloadConsoleIcons(dir);
+                if (any) PostMessageW(m_hwnd, WM_USER + 3, 0, 0);
             }).detach();
         }
     }
@@ -260,9 +265,10 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
 
     case WM_USER + 3:
-        // Background thread finished downloading the Repacks/FitGirl icon.
-        // Create the D2D bitmap here on the render thread.
+        // Background thread finished downloading platform icons.
+        // Create D2D bitmaps here on the render thread (D2D is single-threaded).
         m_platformIcons.TryDownloadAndLoadRepacks(m_renderer.GetRT(), m_renderer.GetWIC());
+        m_platformIcons.TryLoadConsoleIcons(m_renderer.GetRT(), m_renderer.GetWIC());
         InvalidateRect(m_hwnd, nullptr, FALSE);
         return 0;
 

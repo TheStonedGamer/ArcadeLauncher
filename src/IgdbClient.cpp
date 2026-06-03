@@ -216,6 +216,39 @@ std::vector<IgdbGame> IgdbClient::Search(const std::wstring& title, int limit,
     return results;
 }
 
+std::vector<IgdbGame> IgdbClient::FetchGamesByPlatform(int platformId,
+                                                       int offset,
+                                                       int limit) {
+    if (!IsAuthenticated() && !Authenticate()) return {};
+    if (limit > 500) limit = 500;
+
+    // Only main releases (version_parent = null excludes DLC / special editions).
+    std::string body =
+        "fields id,name;"
+        "where platforms = (" + std::to_string(platformId) + ")"
+        " & version_parent = null;"
+        "sort id asc;"
+        "limit "  + std::to_string(limit)  + ";"
+        "offset " + std::to_string(offset) + ";";
+
+    std::string response;
+    if (!Post(L"api.igdb.com", L"/v4/games", body, {}, response)) return {};
+
+    auto root = MiniJson::Parse(response);
+    if (root.type != JsonVal::Array) return {};
+
+    std::vector<IgdbGame> results;
+    results.reserve(root.arr.size());
+    for (auto& item : root.arr) {
+        if (item.type != JsonVal::Object) continue;
+        IgdbGame g;
+        g.id   = item.has("id")   ? item.get("id").i64()   : 0;
+        g.name = item.has("name") ? item.get("name").wstr() : L"";
+        if (g.id > 0 && !g.name.empty()) results.push_back(std::move(g));
+    }
+    return results;
+}
+
 IgdbGame IgdbClient::FetchById(int64_t id) {
     if (!IsAuthenticated() && !Authenticate()) return {};
 

@@ -3,6 +3,7 @@
 #include "EmulatorDownloader.h"
 #include "EmulatorUpdateChecker.h"
 #include "PlatformIcons.h"
+#include "IgdbSync.h"
 #include <shobjidl_core.h>
 #include <commdlg.h>
 
@@ -121,7 +122,8 @@ void SettingsWindow::Open(HWND parent, AppConfig& cfg,
                            std::function<void()> onSave,
                            std::function<void()> onRefreshMeta,
                            std::function<void()> onReacquireMeta,
-                           int startPage) {
+                           int startPage,
+                           IgdbClient* igdbClient) {
     if (IsOpen()) { SetForegroundWindow(m_hwnd); return; }
     m_parent           = parent;
     m_cfg              = &cfg;
@@ -130,6 +132,7 @@ void SettingsWindow::Open(HWND parent, AppConfig& cfg,
     m_onRefreshMeta    = onRefreshMeta;
     m_onReacquireMeta  = onReacquireMeta;
     m_startPage        = startPage;
+    m_igdbClient       = igdbClient;
 
     EnsureFonts();
 
@@ -260,6 +263,24 @@ LRESULT SettingsWindow::HandleMsg(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         HandlePageCommand(id);
+        return 0;
+    }
+
+    case WM_IGDBSYNC_DONE: {
+        // Background sync finished — re-enable the button and show result.
+        HWND btn  = PC(ID_P_BTN6);
+        HWND stat = PC(ID_P_STAT2);
+        if (btn)  { EnableWindow(btn, TRUE); SetWindowTextW(btn, L"Sync from IGDB"); }
+        if (stat) {
+            int total = (int)wp;
+            if (total > 0) {
+                std::wstring msg = std::to_wstring(total)
+                    + L" games synced.  Rescan to apply.";
+                SetWindowTextW(stat, msg.c_str());
+            } else {
+                SetWindowTextW(stat, L"Sync failed — check credentials.");
+            }
+        }
         return 0;
     }
 
@@ -539,6 +560,14 @@ void SettingsWindow::BuildGeneralPage() {
     AddPC(SmallLabel(m_hwnd,
           L"Refresh: fetch missing.   Re-acquire: clear all matches and refetch everything.",
           K_CX + 284, y + 4, K_CW - 296));
+    y += 38;
+
+    // ── Game Database ─────────────────────────────────────────────────────────
+    AddPC(Group(m_hwnd, L" Game Database  (requires IGDB credentials) ", K_CX, y, K_CW, 68));
+    AddPC(Btn(m_hwnd, L"Sync from IGDB", ID_P_BTN6, K_CX + 12, y + 20, 130, 26));
+    AddPC(StatLabel(m_hwnd,
+          L"Downloads the full game catalogue for all emulated platforms.",
+          ID_P_STAT2, K_CX + 152, y + 26, K_CW - 164, 17));
 }
 
 void SettingsWindow::BuildSteamPage() {
@@ -1092,6 +1121,21 @@ void SettingsWindow::HandlePageCommand(int id) {
     if (m_currentPage == PAGE_GENERAL) {
         if (id == ID_P_BTN4 && m_onRefreshMeta)   { m_onRefreshMeta();   return; }
         if (id == ID_P_BTN5 && m_onReacquireMeta) { m_onReacquireMeta(); return; }
+        if (id == ID_P_BTN6) {
+            if (!m_igdbClient || !m_igdbClient->HasCredentials()) {
+                MessageBoxW(m_hwnd,
+                    L"Enter your IGDB (Twitch) credentials above and save first.",
+                    L"No credentials", MB_OK | MB_ICONINFORMATION);
+                return;
+            }
+            EnableWindow(PC(ID_P_BTN6), FALSE);
+            SetWindowTextW(PC(ID_P_BTN6), L"Syncing…");
+            SetWindowTextW(PC(ID_P_STAT2), L"Downloading game list from IGDB…");
+
+            std::wstring dest = GetAppDataPath() + L"\\romdb.json";
+            IgdbSync::StartAsync(m_hwnd, *m_igdbClient, dest);
+            return;
+        }
     }
 
     switch (m_currentPage) {

@@ -113,6 +113,7 @@
     <ClCompile Include="src\EmulatorUpdateChecker.cpp" />
     <ClCompile Include="src\AppUpdater.cpp" />
     <ClCompile Include="src\RomDatabase.cpp" />
+    <ClCompile Include="src\IgdbSync.cpp" />
     <ClCompile Include="src\ArchiveExtractor.cpp" />
     <ClCompile Include="src\MetadataPickerDialog.cpp" />
     <ClCompile Include="src\GameEditDialog.cpp" />

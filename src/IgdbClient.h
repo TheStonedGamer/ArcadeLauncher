@@ -47,6 +47,13 @@ public:
     // Fetch single game by IGDB id (with cover, genres, summary).
     IgdbGame FetchById(int64_t id);
 
+    // Bulk-fetch games for a platform (for local DB sync).
+    // Returns up to `limit` (max 500) games starting at `offset`.
+    // Returns an empty vector if auth fails or no results.
+    std::vector<IgdbGame> FetchGamesByPlatform(int platformId,
+                                               int offset = 0,
+                                               int limit  = 500);
+
     // Resolve a cover id to its image_id string, then build a URL.
     std::wstring CoverUrl(const std::wstring& imageId,
                           const std::string& size = "cover_big") const;

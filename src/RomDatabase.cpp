@@ -1,6 +1,21 @@
 #include "pch.h"
 #include "RomDatabase.h"
 
+// ── Normalisation (shared with IgdbSync) ─────────────────────────────────────
+
+static std::wstring NormaliseKey(const std::wstring& s) {
+    std::wstring out;
+    out.reserve(s.size());
+    for (wchar_t c : s) {
+        if      (iswalpha(c) || iswdigit(c)) out += towlower(c);
+        else if (iswspace(c) || c == L'-') {
+            if (!out.empty() && out.back() != L' ') out += L' ';
+        }
+    }
+    while (!out.empty() && out.back() == L' ') out.pop_back();
+    return out;
+}
+
 // ── Minimal JSON helpers ──────────────────────────────────────────────────────
 
 static std::string ReadStr(const std::string& json, const std::string& key) {
@@ -97,10 +112,8 @@ bool RomDatabase::Load(const std::wstring& jsonPath) {
                 e.title  = ToWide(t);
                 e.igdbId = ReadNum(obj, "i");
 
-                // Store with lowercase key for case-insensitive lookup
-                std::string keyLow = romKey;
-                for (char& c : keyLow) c = (char)tolower((unsigned char)c);
-                platMap[ToWide(keyLow)] = std::move(e);
+                // Store with normalised key so hand-built entries also match.
+                platMap[NormaliseKey(ToWide(romKey))] = std::move(e);
             }
 
             pos = objEnd + 1;
@@ -121,9 +134,8 @@ const RomDatabase::Entry* RomDatabase::Lookup(Platform platform,
     auto pit = m_db.find((int)platform);
     if (pit == m_db.end()) return nullptr;
 
-    // Lowercase the title for case-insensitive lookup
-    std::wstring key = strippedTitle;
-    for (wchar_t& c : key) c = towlower(c);
+    // Normalise the incoming title the same way IgdbSync stores keys.
+    std::wstring key = NormaliseKey(strippedTitle);
 
     auto it = pit->second.find(key);
     return (it != pit->second.end()) ? &it->second : nullptr;

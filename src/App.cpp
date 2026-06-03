@@ -1344,7 +1344,8 @@ void App::OpenSettings(int startPage) {
                 m_metaManager->ForceRescanAllAsync(metaProgressCb);
             InvalidateRect(m_hwnd, nullptr, FALSE);
         },
-        startPage);
+        startPage,
+        &m_igdbClient);
 }
 
 void App::SaveAll() {

@@ -1,6 +1,8 @@
 #pragma once
 #include "pch.h"
 #include "Config.h"
+#include "IgdbSync.h"
+#include "IgdbClient.h"
 
 class SettingsWindow {
 public:
@@ -28,7 +30,8 @@ public:
               std::function<void()> onSave,
               std::function<void()> onRefreshMeta    = {},
               std::function<void()> onReacquireMeta  = {},
-              int startPage = PAGE_GENERAL);
+              int startPage = PAGE_GENERAL,
+              IgdbClient* igdbClient = nullptr);
     void Close();
     bool IsOpen() const;
 
@@ -45,8 +48,9 @@ private:
         ID_P_EDIT1 = 110, ID_P_EDIT2 = 111,
         ID_P_LIST1 = 120,
         ID_P_BTN1  = 130, ID_P_BTN2  = 131, ID_P_BTN3  = 132,
-        ID_P_BTN4  = 133, ID_P_BTN5  = 134,
+        ID_P_BTN4  = 133, ID_P_BTN5  = 134, ID_P_BTN6  = 136,
         ID_P_STAT1 = 135,   // version status label on emulator pages
+        ID_P_STAT2 = 137,   // secondary status label (e.g. DB sync state)
     };
 
     // Layout
@@ -133,8 +137,9 @@ private:
     std::function<void()> m_onRefreshMeta;
     std::function<void()> m_onReacquireMeta;
 
-    HBRUSH m_sidebarBrush = nullptr;
-    int    m_startPage    = PAGE_GENERAL;
+    HBRUSH       m_sidebarBrush = nullptr;
+    int          m_startPage    = PAGE_GENERAL;
+    IgdbClient*  m_igdbClient   = nullptr;  // not owned
 
     static constexpr wchar_t WNDCLASS[] = L"ArcadeLauncherSettings2";
 };

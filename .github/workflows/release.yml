@@ -1,10 +1,11 @@
 name: Release
 
-# Triggered automatically by the promote.yml workflow when it pushes a version tag.
-# Do NOT add a `branches:` filter here — tag and branch push filters are independent
-# in GitHub Actions; adding branches would make this fire on every push to main.
+# Fires on every push to main AND on version tags pushed by promote.yml.
+# In both cases the version is read from src/Version.h so the release tag
+# is always correct regardless of how the workflow was triggered.
 on:
   push:
+    branches: [main]
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
@@ -21,7 +22,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Build toolchain ────────────────────────────────────────────────────
+      # ── 2. Derive version from Version.h ─────────────────────────────────────
+      - name: Read version
+        id: ver
+        shell: pwsh
+        run: |
+          $txt   = Get-Content src\Version.h -Raw
+          $major = [regex]::Match($txt, '#define ARCADE_VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($txt, '#define ARCADE_VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [regex]::Match($txt, '#define ARCADE_VERSION_PATCH\s+(\d+)').Groups[1].Value
+          $ver   = "$major.$minor.$patch"
+          $tag   = "v$ver"
+          Write-Host "Version: $ver   Tag: $tag"
+          "VERSION=$ver" >> $env:GITHUB_OUTPUT
+          "TAG=$tag"     >> $env:GITHUB_OUTPUT
+
+      # ── 3. Build toolchain ────────────────────────────────────────────────────
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v2
 
@@ -35,7 +51,7 @@ jobs:
           dotnet tool install --global wix --version 4.0.5
           wix extension add WixToolset.UI.wixext/4.0.5 --global
 
-      # ── 3. Compile (Release|x64) ──────────────────────────────────────────────
+      # ── 4. Compile (Release|x64) ──────────────────────────────────────────────
       - name: Build Release
         run: |
           msbuild GameLauncher.sln `
@@ -44,39 +60,34 @@ jobs:
             /m /nologo `
             /p:TreatWarningsAsErrors=false
 
-      # ── 4. Package MSI ────────────────────────────────────────────────────────
+      # ── 5. Package MSI ────────────────────────────────────────────────────────
       - name: Create dist directory
         run: New-Item -ItemType Directory -Force dist
 
       - name: Build MSI
         run: |
-          $txt   = Get-Content src\Version.h -Raw
-          $major = [regex]::Match($txt, '#define ARCADE_VERSION_MAJOR\s+(\d+)').Groups[1].Value
-          $minor = [regex]::Match($txt, '#define ARCADE_VERSION_MINOR\s+(\d+)').Groups[1].Value
-          $patch = [regex]::Match($txt, '#define ARCADE_VERSION_PATCH\s+(\d+)').Groups[1].Value
-          $ver   = "$major.$minor.$patch"
-          Write-Host "Product version: $ver"
           wix build installer\ArcadeLauncher.wxs `
             -ext WixToolset.UI.wixext `
             -d "BinDir=bin\Release" `
-            -d "ProductVersion=$ver" `
+            -d "ProductVersion=${{ steps.ver.outputs.VERSION }}" `
             -out "dist\ArcadeLauncher-x64.msi" `
             -arch x64
 
-      # ── 5. Collect artifacts ──────────────────────────────────────────────────
+      # ── 6. Collect artifacts ──────────────────────────────────────────────────
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ArcadeLauncher-${{ github.ref_name }}
+          name: ArcadeLauncher-${{ steps.ver.outputs.TAG }}
           path: |
             dist\ArcadeLauncher-x64.msi
             bin\Release\ArcadeLauncher.exe
 
-      # ── 6. Create GitHub Release ──────────────────────────────────────────────
+      # ── 7. Create / update GitHub Release ────────────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ArcadeLauncher ${{ github.ref_name }}
+          tag_name: ${{ steps.ver.outputs.TAG }}
+          name: ArcadeLauncher ${{ steps.ver.outputs.TAG }}
           draft: false
           prerelease: false
           generate_release_notes: true

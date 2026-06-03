@@ -3,6 +3,7 @@
 // Do NOT include pch.h here; rc.exe is not a C++ compiler.
 
 #include "Version.h"
+#include <winver.h>   // required by rc.exe >= SDK 10.0.26100 for VERSIONINFO constants
 
 // ─── Application icon ────────────────────────────────────────────────────────
 // Resource ID 101 = IDI_APPICON — used by WNDCLASSEXW (hIcon / hIconSm)

@@ -383,8 +383,9 @@ void App::OnTimer(UINT timerId) {
 void App::OnMouseMove(float x, float y) {
     m_lastMouseX = x; m_lastMouseY = y;
 
-    // Auto-reveal menu bar: show when mouse is within 20px of the top edge
-    if (y < 20.0f && !m_menuActive)
+    // Auto-reveal menu bar: only trigger in the top-left corner hot zone,
+    // not the entire top edge of the window.
+    if (y < 20.0f && x < 80.0f && !m_menuActive)
         ShowMenuBar();
 
     int prev = m_renderState.hoveredIndex;

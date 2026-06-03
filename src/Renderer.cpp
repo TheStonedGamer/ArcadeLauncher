@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Renderer.h"
+#include "Version.h"
 
 // ── Color palette ─────────────────────────────────────────────────────────────
 static const D2D1_COLOR_F C_BG         = D2D1::ColorF(0x0D1117);
@@ -285,6 +286,13 @@ void Renderer::DrawSidebar(const RenderState& state) {
                        (active || kbFocus) ? m_brushText.Get() : m_brushSubtext.Get());
         y += 42.0f;
         ++entryIdx;
+    }
+
+    // Version number
+    {
+        static const std::wstring ver = L"v" ARCADE_VERSION_WSTR;
+        D2D1_RECT_F vr = D2D1::RectF(8, (float)m_height - 76, m_sidebarW - 8, (float)m_height - 58);
+        m_rt->DrawText(ver.c_str(), (UINT32)ver.size(), m_fmtSmall.Get(), vr, m_brushSubtext.Get());
     }
 
     // Tab hint at bottom of sidebar when not in sidebar focus

@@ -88,24 +88,28 @@ function Find-MSBuild {
 }
 
 function Ensure-WiX {
+    # 1. Already on PATH?
     $wix = (Get-Command wix -ErrorAction SilentlyContinue)
     if ($wix) { return $wix.Source }
 
+    # 2. Installed as a dotnet global tool but PATH not yet refreshed?
+    $dotnetToolsWix = "$env:USERPROFILE\.dotnet\tools\wix.exe"
+    if (Test-Path $dotnetToolsWix) { return $dotnetToolsWix }
+
+    # 3. Install it now
     Write-Host "  WiX CLI not found -- installing via dotnet tool..." -ForegroundColor Yellow
 
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
         throw "dotnet SDK not found. Install the .NET SDK from https://dotnet.microsoft.com/download"
     }
 
-    Invoke-Checked { dotnet tool install --global wix --version $WixVersion }
+    dotnet tool install --global wix --version $WixVersion
+    if ($LASTEXITCODE -ne 0) { throw "dotnet tool install wix failed." }
 
-    # Refresh PATH in this session
-    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" +
-                [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
-
-    $wix = (Get-Command wix -ErrorAction SilentlyContinue)
-    if (-not $wix) { throw "wix.exe still not found after install. Restart the shell and try again." }
-    return $wix.Source
+    if (-not (Test-Path $dotnetToolsWix)) {
+        throw "wix.exe not found at $dotnetToolsWix after install. Restart the shell and try again."
+    }
+    return $dotnetToolsWix
 }
 
 function Find-SignTool {

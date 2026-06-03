@@ -2,12 +2,15 @@
 #include "App.h"
 
 
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
-    // Single-instance check
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int) {
+    bool startInTray = (lpCmdLine && wcsstr(lpCmdLine, L"--tray") != nullptr);
+
+    // Single-instance check — if already running, show/restore it.
     HANDLE hMutex = CreateMutexW(nullptr, TRUE, L"ArcadeLauncherSingleInstance");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         HWND existing = FindWindowW(L"ArcadeLauncherWnd", nullptr);
         if (existing) {
+            ShowWindow(existing, SW_SHOW);
             ShowWindow(existing, SW_RESTORE);
             SetForegroundWindow(existing);
         }
@@ -19,7 +22,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
     {
         App app;
-        if (app.Initialize(hInstance))
+        if (app.Initialize(hInstance, startInTray))
             app.Run();
     }
 

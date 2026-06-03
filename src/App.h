@@ -19,7 +19,7 @@ public:
     App();
     ~App();
 
-    bool Initialize(HINSTANCE hInstance);
+    bool Initialize(HINSTANCE hInstance, bool startInTray = false);
     int  Run();
 
 private:
@@ -55,6 +55,14 @@ private:
     void SaveAll();
     void LoadAll();
 
+    // ── Tray icon ──────────────────────────────────────────────────────────────
+    void CreateTrayIcon();
+    void RemoveTrayIcon();
+    void ShowTrayMenu();
+    bool IsStartupEnabled() const;
+    void SetStartup(bool enable);
+    void ShowWindow_(bool show);  // show/restore or hide
+
     HWND             m_hwnd = nullptr;
     HINSTANCE        m_hInst = nullptr;
     bool             m_fullscreen = false;
@@ -82,9 +90,16 @@ private:
     // Auto-hidden menu bar
     bool             m_menuActive = false;
 
+    // Tray state
+    NOTIFYICONDATAW          m_nid{};
+    std::vector<std::wstring> m_trayRecentIds;  // game IDs shown in last tray menu
+
     static constexpr UINT TIMER_ANIM   = 1;
     static constexpr UINT TIMER_SCROLL = 2;
     static constexpr UINT TIMER_SAVE   = 3;
+
+    // Window messages
+    static constexpr UINT WM_TRAYICON = WM_USER + 100;
 
     // Context menu command IDs
     static constexpr UINT IDM_LAUNCH      = 5001;
@@ -99,4 +114,11 @@ private:
     static constexpr UINT IDM_TOOL_N64     = 6004;
     static constexpr UINT IDM_TOOL_NES     = 6005;
     static constexpr UINT IDM_TOOL_SNES    = 6006;
+
+    // Tray menu command IDs
+    static constexpr UINT IDM_TRAY_SHOW    = 7001;
+    static constexpr UINT IDM_TRAY_SETTINGS = 7002;
+    static constexpr UINT IDM_TRAY_STARTUP = 7003;
+    static constexpr UINT IDM_TRAY_EXIT    = 7004;
+    static constexpr UINT IDM_TRAY_GAME0   = 7100;  // + 0..4 for 5 recent games
 };

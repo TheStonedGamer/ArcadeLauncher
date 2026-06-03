@@ -10,7 +10,7 @@ static const wchar_t* WNDCLASS_NAME = L"ArcadeLauncherWnd";
 App::App() {}
 App::~App() {}
 
-bool App::Initialize(HINSTANCE hInstance) {
+bool App::Initialize(HINSTANCE hInstance, bool startInTray) {
     m_hInst = hInstance;
 
     WNDCLASSEXW wc{};
@@ -76,8 +76,15 @@ bool App::Initialize(HINSTANCE hInstance) {
         m_fullscreen = true;
     }
 
-    ShowWindow(m_hwnd, SW_SHOW);
-    UpdateWindow(m_hwnd);
+    CreateTrayIcon();
+
+    if (startInTray) {
+        // Boot launch — stay hidden in tray, don't flash on screen.
+        ShowWindow(m_hwnd, SW_HIDE);
+    } else {
+        ShowWindow(m_hwnd, SW_SHOW);
+        UpdateWindow(m_hwnd);
+    }
 
     // On first launch, offer to download missing emulators.
     if (!m_config.Get().firstLaunchDone) {
@@ -149,6 +156,30 @@ LRESULT CALLBACK App::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+    case WM_CLOSE:
+        // Hide to tray instead of closing — use Exit from the tray menu to truly quit.
+        ShowWindow(m_hwnd, SW_HIDE);
+        return 0;
+
+    case WM_SYSCOMMAND:
+        // Minimize button → hide to tray as well.
+        if ((wp & 0xFFF0) == SC_MINIMIZE) {
+            ShowWindow(m_hwnd, SW_HIDE);
+            return 0;
+        }
+        break;
+
+    case WM_TRAYICON:
+        switch (LOWORD(lp)) {
+        case WM_LBUTTONDBLCLK:
+            ShowWindow_(true);
+            break;
+        case WM_RBUTTONUP:
+            ShowTrayMenu();
+            break;
+        }
+        return 0;
+
     case WM_DESTROY:
         OnDestroy();
         PostQuitMessage(0);
@@ -281,6 +312,7 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 void App::OnCreate(HWND) {}
 
 void App::OnDestroy() {
+    RemoveTrayIcon();
     if (m_metaManager) m_metaManager->Shutdown();
     m_fetcher->Shutdown();
     SaveAll();
@@ -932,7 +964,7 @@ void App::LaunchGame(const Game& game) {
     }
 
     if (ok && m_config.Get().minimizeOnLaunch)
-        ShowWindow(m_hwnd, SW_MINIMIZE);
+        ShowWindow(m_hwnd, SW_HIDE);  // hide to tray when a game launches
 }
 
 void App::ApplyFilter() {
@@ -1036,6 +1068,36 @@ void App::OnRButtonDown(float x, float y) {
             OpenMetadataPicker(m_visibleGames[idx]->id, m_visibleGames[idx]->title);
     } else if (cmd == IDM_DELETE_ROM) {
         DeleteRom(idx);
+    }
+
+    // ── Tray menu commands ────────────────────────────────────────────────────
+    switch (cmd) {
+    case IDM_TRAY_SHOW:
+        ShowWindow_(IsWindowVisible(m_hwnd) == FALSE);
+        break;
+    case IDM_TRAY_SETTINGS:
+        ShowWindow_(true);
+        OpenSettings();
+        break;
+    case IDM_TRAY_STARTUP:
+        SetStartup(!IsStartupEnabled());
+        break;
+    case IDM_TRAY_EXIT:
+        RemoveTrayIcon();
+        DestroyWindow(m_hwnd);
+        break;
+    default:
+        if (cmd >= IDM_TRAY_GAME0 && cmd < IDM_TRAY_GAME0 + 10) {
+            int ri = (int)(cmd - IDM_TRAY_GAME0);
+            if (ri < (int)m_trayRecentIds.size()) {
+                const Game* g = m_library.FindById(m_trayRecentIds[ri]);
+                if (g) {
+                    ShowWindow_(true);
+                    LaunchGame(*g);
+                }
+            }
+        }
+        break;
     }
 }
 
@@ -1210,4 +1272,123 @@ void App::LoadAll() {
     CreateDirectoryW(appData.c_str(), nullptr);
     m_config.Load(appData + L"\\config.json");
     m_library.Load(appData + L"\\library.json");
+}
+
+// ── Tray icon implementation ───────────────────────────────────────────────────
+
+void App::CreateTrayIcon() {
+    m_nid = {};
+    m_nid.cbSize           = sizeof(NOTIFYICONDATAW);
+    m_nid.hWnd             = m_hwnd;
+    m_nid.uID              = 1;
+    m_nid.uFlags           = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    m_nid.uCallbackMessage = WM_TRAYICON;
+    m_nid.hIcon            = LoadIconW(m_hInst, MAKEINTRESOURCEW(101));
+    wcscpy_s(m_nid.szTip, L"ArcadeLauncher");
+    Shell_NotifyIconW(NIM_ADD, &m_nid);
+}
+
+void App::RemoveTrayIcon() {
+    if (m_nid.hWnd)
+        Shell_NotifyIconW(NIM_DELETE, &m_nid);
+    m_nid.hWnd = nullptr;
+}
+
+void App::ShowWindow_(bool show) {
+    if (show) {
+        ShowWindow(m_hwnd, SW_SHOW);
+        ShowWindow(m_hwnd, SW_RESTORE);
+        SetForegroundWindow(m_hwnd);
+    } else {
+        ShowWindow(m_hwnd, SW_HIDE);
+    }
+}
+
+bool App::IsStartupEnabled() const {
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+            0, KEY_QUERY_VALUE, &hKey) != ERROR_SUCCESS)
+        return false;
+    DWORD size = 0;
+    bool found = RegQueryValueExW(hKey, L"ArcadeLauncher",
+                                  nullptr, nullptr, nullptr, &size) == ERROR_SUCCESS;
+    RegCloseKey(hKey);
+    return found;
+}
+
+void App::SetStartup(bool enable) {
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+            0, KEY_SET_VALUE, &hKey) != ERROR_SUCCESS)
+        return;
+
+    if (enable) {
+        wchar_t exePath[MAX_PATH]{};
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+        std::wstring val = std::wstring(L"\"") + exePath + L"\" --tray";
+        RegSetValueExW(hKey, L"ArcadeLauncher", 0, REG_SZ,
+            reinterpret_cast<const BYTE*>(val.c_str()),
+            static_cast<DWORD>((val.size() + 1) * sizeof(wchar_t)));
+    } else {
+        RegDeleteValueW(hKey, L"ArcadeLauncher");
+    }
+    RegCloseKey(hKey);
+}
+
+void App::ShowTrayMenu() {
+    HMENU menu = CreatePopupMenu();
+
+    // Bold app-name header (owner-draw workaround: just use a grayed string)
+    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"ArcadeLauncher");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    // Show / Hide toggle
+    bool visible = IsWindowVisible(m_hwnd) != FALSE;
+    AppendMenuW(menu, MF_STRING, IDM_TRAY_SHOW, visible ? L"Hide" : L"Show");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    // Recent games — top 5 by lastPlayed
+    m_trayRecentIds.clear();
+    {
+        std::vector<const Game*> recent;
+        for (auto& g : m_library.All())
+            if (g.lastPlayed > 0) recent.push_back(&g);
+        std::sort(recent.begin(), recent.end(),
+            [](const Game* a, const Game* b) { return a->lastPlayed > b->lastPlayed; });
+        if (recent.size() > 5) recent.resize(5);
+
+        if (!recent.empty()) {
+            AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"Recent");
+            for (size_t i = 0; i < recent.size(); i++) {
+                m_trayRecentIds.push_back(recent[i]->id);
+                // Truncate long titles for the menu
+                std::wstring lbl = recent[i]->title;
+                if (lbl.size() > 40) { lbl.resize(37); lbl += L"..."; }
+                AppendMenuW(menu, MF_STRING, IDM_TRAY_GAME0 + (UINT)i, lbl.c_str());
+            }
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        }
+    }
+
+    // Settings
+    AppendMenuW(menu, MF_STRING, IDM_TRAY_SETTINGS, L"Settings");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    // Start at Boot (checked when enabled)
+    UINT startupFlags = MF_STRING | (IsStartupEnabled() ? MF_CHECKED : 0);
+    AppendMenuW(menu, startupFlags, IDM_TRAY_STARTUP, L"Start at Boot");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    // Exit
+    AppendMenuW(menu, MF_STRING, IDM_TRAY_EXIT, L"Exit");
+
+    POINT pt;
+    GetCursorPos(&pt);
+    // SetForegroundWindow is required so the menu dismisses on click-away.
+    SetForegroundWindow(m_hwnd);
+    TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
+                     pt.x, pt.y, m_hwnd, nullptr);
+    DestroyMenu(menu);
 }

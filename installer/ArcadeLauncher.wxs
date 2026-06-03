@@ -18,7 +18,7 @@
 
   <Package Name="ArcadeLauncher"
            Manufacturer="ArcadeLauncher"
-           Version="!(bind.FileVersion.MainExe)"
+           Version="$(var.ProductVersion)"
            UpgradeCode="DA9B3C2E-5F7A-4B8D-9C1E-0F2A3B4C5D6E"
            Language="1033"
            Scope="perMachine">

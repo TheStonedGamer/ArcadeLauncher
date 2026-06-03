@@ -70,6 +70,7 @@ std::vector<const Game*> GameLibrary::Search(const std::wstring& query) const {
 }
 
 Game* GameLibrary::FindById(const std::wstring& id) {
+    std::lock_guard<std::mutex> lk(m_mutex);
     for (auto& g : m_games)
         if (g.id == id) return &g;
     return nullptr;
@@ -248,6 +249,10 @@ void GameLibrary::Load(const std::wstring& path) {
         else if (plat == "GOG")     g.platform = Platform::GOG;
         else if (plat == "Dolphin") g.platform = Platform::Dolphin;
         else if (plat == "Ryujinx") g.platform = Platform::Ryujinx;
+        else if (plat == "RPCS3")   g.platform = Platform::RPCS3;
+        else if (plat == "N64")     g.platform = Platform::N64;
+        else if (plat == "NES")     g.platform = Platform::NES;
+        else if (plat == "SNES")    g.platform = Platform::SNES;
         else                        g.platform = Platform::Repacks;
 
         m_games.push_back(std::move(g));

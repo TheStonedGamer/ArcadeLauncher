@@ -111,6 +111,7 @@
     <ClCompile Include="src\SettingsWindow.cpp" />
     <ClCompile Include="src\EmulatorDownloader.cpp" />
     <ClCompile Include="src\EmulatorUpdateChecker.cpp" />
+    <ClCompile Include="src\AppUpdater.cpp" />
     <ClCompile Include="src\ArchiveExtractor.cpp" />
     <ClCompile Include="src\MetadataPickerDialog.cpp" />
     <ClCompile Include="src\GameEditDialog.cpp" />
@@ -133,6 +134,7 @@
     <ClInclude Include="src\SettingsWindow.h" />
     <ClInclude Include="src\EmulatorDownloader.h" />
     <ClInclude Include="src\EmulatorUpdateChecker.h" />
+    <ClInclude Include="src\AppUpdater.h" />
     <ClInclude Include="src\ArchiveExtractor.h" />
     <ClInclude Include="src\MetadataPickerDialog.h" />
     <ClInclude Include="src\GameEditDialog.h" />
@@ -146,11 +148,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Windows resource file: VERSIONINFO + app manifest -->
+    <!-- Windows resource file: VERSIONINFO + app manifest + app icon -->
     <ResourceCompile Include="resources\ArcadeLauncher.rc">
-      <!-- rc.exe needs to find Version.h (in src\) and the manifest (in resources\) -->
+      <!-- rc.exe needs to find Version.h (in src\) and the manifest + icon (in resources\) -->
       <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)resources;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- App icon — embedded via ArcadeLauncher.rc; listed here so it appears in Solution Explorer -->
+    <Image Include="resources\icon.ico" />
   </ItemGroup>
 
   <!-- ── LZMA SDK (bundled in src\lzma\, public domain — Igor Pavlov) ──────── -->

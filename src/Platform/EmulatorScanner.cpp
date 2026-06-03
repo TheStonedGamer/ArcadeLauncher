@@ -17,6 +17,47 @@ static std::wstring StripRomTags(std::wstring title) {
     return title;
 }
 
+// Score a ROM filename using No-Intro / GoodNES naming conventions.
+// Higher = better. We pick the highest-scoring ROM when titles collide.
+static int RomScore(const std::wstring& fname) {
+    std::wstring f = fname;
+    for (auto& c : f) c = towlower(c);
+
+    int score = 0;
+
+    // Verified good dump — best possible
+    if (f.find(L"[!]") != std::wstring::npos)          score += 20;
+
+    // Alternates, bad dumps, over-dumps — avoid
+    if (f.find(L"[a")  != std::wstring::npos)           score -= 10; // [a1],[a2]…
+    if (f.find(L"[b")  != std::wstring::npos)           score -= 15; // bad dump
+    if (f.find(L"[o")  != std::wstring::npos)           score -= 10; // over-dump
+
+    // Prototypes and betas — usually interesting but not the release
+    if (f.find(L"prototype") != std::wstring::npos)     score -=  8;
+    if (f.find(L"beta")      != std::wstring::npos)     score -=  8;
+
+    // Translation patches — fine but not the original
+    if (f.find(L"trad-")     != std::wstring::npos)     score -=  5;
+
+    // Prefer higher PRG / Rev revisions
+    if (f.find(L"prg 0")     != std::wstring::npos)     score -=  2;
+    if (f.find(L"prg 1")     != std::wstring::npos)     score +=  1;
+    if (f.find(L"rev 0")     != std::wstring::npos)     score -=  2;
+    if (f.find(L"rev a")     != std::wstring::npos)     score +=  1;
+    if (f.find(L"rev b")     != std::wstring::npos)     score +=  2;
+
+    // Prefer US/English releases over region-ambiguous or foreign
+    if (f.find(L"(u)")       != std::wstring::npos)     score +=  3;
+    if (f.find(L"(usa)")     != std::wstring::npos)     score +=  3;
+    if (f.find(L"en,")       != std::wstring::npos)     score +=  1; // multi-lang with English
+
+    // Hacks — deprioritise
+    if (f.find(L"hack")      != std::wstring::npos)     score -= 12;
+
+    return score;
+}
+
 EmulatorScanner::EmulatorScanner(EmulatorRomConfig cfg) : m_cfg(std::move(cfg)) {}
 
 std::vector<Game> EmulatorScanner::Scan() {
@@ -72,5 +113,34 @@ std::vector<Game> EmulatorScanner::Scan() {
         } while (FindNextFileW(h, &fd));
         FindClose(h);
     }
+
+    // ── Deduplicate ROM variants ───────────────────────────────────────────────
+    // Many ROM collections contain multiple revisions/alternates of the same game
+    // (e.g. "Zelda (U) (PRG 0).nes" and "Zelda (U) (PRG 1).nes"). After tag
+    // stripping they produce the same title. Keep the highest-scored ROM only.
+    //
+    // We use a map: title → index of current winner in `games`.
+    // Losers get their id cleared; we erase them at the end.
+    std::unordered_map<std::wstring, size_t> bestIdx; // title → winner index
+    for (size_t i = 0; i < games.size(); ++i) {
+        const std::wstring& t = games[i].title;
+        auto it = bestIdx.find(t);
+        if (it == bestIdx.end()) {
+            bestIdx[t] = i;
+        } else {
+            size_t prev = it->second;
+            int scoreNew  = RomScore(games[i].romPath);
+            int scorePrev = RomScore(games[prev].romPath);
+            if (scoreNew > scorePrev) {
+                games[prev].id.clear(); // mark old winner as discarded
+                bestIdx[t] = i;
+            } else {
+                games[i].id.clear();   // discard new challenger
+            }
+        }
+    }
+    games.erase(std::remove_if(games.begin(), games.end(),
+        [](const Game& g) { return g.id.empty(); }), games.end());
+
     return games;
 }

@@ -275,7 +275,9 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
 
     case WM_APP_UPDATE_FOUND: {
-        // Background thread found a newer release. Prompt the user.
+        // Background thread found a newer release — surface the window so the
+        // prompt is visible even when running hidden in the tray.
+        ShowWindow_(true);
         auto* info = reinterpret_cast<AppUpdateInfo*>(lp);
         std::wstring msg =
             L"ArcadeLauncher " + info->tag + L" is available!\n\n"
@@ -298,9 +300,12 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 L"Please visit github.com/TheStonedGamer/ArcadeLauncher/releases to update manually.",
                 L"Update Failed", MB_OK | MB_ICONWARNING);
         } else {
-            // msiexec is running — close the launcher so the installer can replace files
+            // msiexec is running — exit immediately so it can replace the binary.
+            // Use ExitProcess instead of DestroyWindow so we don't block on
+            // network/fetch thread shutdown (which would hold the file lock).
             SaveAll();
-            DestroyWindow(m_hwnd);
+            RemoveTrayIcon();
+            ExitProcess(0);
         }
         return 0;
     }

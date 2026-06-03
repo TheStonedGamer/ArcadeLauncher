@@ -186,11 +186,20 @@ if (-not $SkipPackage) {
 
     Invoke-Checked { & $wixExe extension add $WixUIExt --global 2>$null }
 
+    # Read version from Version.h (single source of truth)
+    $versionH = Get-Content "$Root\src\Version.h" -Raw
+    $major = [regex]::Match($versionH, '#define ARCADE_VERSION_MAJOR\s+(\d+)').Groups[1].Value
+    $minor = [regex]::Match($versionH, '#define ARCADE_VERSION_MINOR\s+(\d+)').Groups[1].Value
+    $patch = [regex]::Match($versionH, '#define ARCADE_VERSION_PATCH\s+(\d+)').Groups[1].Value
+    $productVersion = "$major.$minor.$patch"
+    Write-Host "  Version : $productVersion"
+
     Write-Host "  Running: wix build ..."
     Invoke-Checked {
         & $wixExe build $Wxs `
             -ext WixToolset.UI.wixext `
             -d "BinDir=$BinDir" `
+            -d "ProductVersion=$productVersion" `
             -out $OutMsi `
             -arch x64
     }

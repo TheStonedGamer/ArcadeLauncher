@@ -61,9 +61,16 @@ jobs:
 
       - name: Build MSI
         run: |
+          $txt   = Get-Content src\Version.h -Raw
+          $major = [regex]::Match($txt, '#define ARCADE_VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($txt, '#define ARCADE_VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [regex]::Match($txt, '#define ARCADE_VERSION_PATCH\s+(\d+)').Groups[1].Value
+          $ver   = "$major.$minor.$patch"
+          Write-Host "Product version: $ver"
           wix build installer\ArcadeLauncher.wxs `
             -ext WixToolset.UI.wixext `
             -d "BinDir=bin\Release" `
+            -d "ProductVersion=$ver" `
             -out "dist\ArcadeLauncher-x64.msi" `
             -arch x64
 

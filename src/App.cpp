@@ -1,0 +1,1111 @@
+#include "pch.h"
+#include "App.h"
+#include "Platform/SteamScanner.h"
+#include "Platform/EpicScanner.h"
+#include "Platform/GogScanner.h"
+#include "Platform/EmulatorScanner.h"
+
+static const wchar_t* WNDCLASS_NAME = L"ArcadeLauncherWnd";
+
+App::App() {}
+App::~App() { SaveAll(); }
+
+bool App::Initialize(HINSTANCE hInstance) {
+    m_hInst = hInstance;
+
+    WNDCLASSEXW wc{};
+    wc.cbSize        = sizeof(wc);
+    wc.lpfnWndProc   = WndProc;
+    wc.hInstance     = hInstance;
+    wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    wc.lpszClassName = WNDCLASS_NAME;
+    RegisterClassExW(&wc);
+
+    auto& cfg = m_config.Get();
+    m_hwnd = CreateWindowExW(0, WNDCLASS_NAME, L"ArcadeLauncher",
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        cfg.windowWidth, cfg.windowHeight,
+        nullptr, nullptr, hInstance, this);
+    if (!m_hwnd) return false;
+
+    LoadAll();
+
+    // Auto-detect emulator paths on first launch (persist so they survive restarts)
+    {
+        auto& emus = m_config.Get().emulators;
+        if (emus.dolphinPath.empty())
+            emus.dolphinPath = PlatformIcons::FindDolphinExe(L"");
+        if (emus.ryujinxPath.empty())
+            emus.ryujinxPath = PlatformIcons::FindRyujinxExe(L"");
+        if (!emus.dolphinPath.empty() || !emus.ryujinxPath.empty())
+            m_config.Save(GetAppDataPath() + L"\\config.json");
+    }
+
+    m_renderer.Initialize(m_hwnd);
+
+    // Load platform icons on the render thread (D2D bitmap creation must happen here)
+    // The FitGirl download is quick; icon extraction is local-only.
+    m_renderer.LoadPlatformIcons(m_platformIcons, m_config.Get().emulators);
+
+    // Wire up IGDB client with saved credentials + cached token
+    if (!cfg.igdbClientId.empty()) {
+        m_igdbClient.SetCredentials(cfg.igdbClientId, cfg.igdbClientSecret);
+        if (!cfg.igdbAccessToken.empty())
+            m_igdbClient.RestoreToken(cfg.igdbAccessToken, cfg.igdbTokenExpiry);
+
+        std::wstring artDir = GetAppDataPath() + L"\\art";
+        m_metaManager = std::make_unique<MetadataManager>(
+            m_library, m_igdbClient, artDir);
+    }
+
+    ApplyFilter();
+
+    if (cfg.startFullscreen) {
+        DWORD style = (DWORD)GetWindowLongW(m_hwnd, GWL_STYLE);
+        SetWindowLongW(m_hwnd, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
+        MONITORINFO mi{ sizeof(mi) };
+        GetMonitorInfoW(MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTOPRIMARY), &mi);
+        auto& r = mi.rcMonitor;
+        SetWindowPos(m_hwnd, HWND_TOP, r.left, r.top,
+                     r.right - r.left, r.bottom - r.top,
+                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        m_fullscreen = true;
+    }
+
+    ShowWindow(m_hwnd, SW_SHOW);
+    UpdateWindow(m_hwnd);
+
+    // On first launch, offer to download missing emulators.
+    if (!m_config.Get().firstLaunchDone) {
+        m_setup.Open(m_hwnd, m_config.Get(), [this]() {
+            m_config.Get().firstLaunchDone = true;
+            SaveAll();
+            m_renderer.LoadPlatformIcons(m_platformIcons, m_config.Get().emulators);
+            UpdateSidebarFlags();
+            std::thread([this]() { ScanAllPlatforms(); }).detach();
+            InvalidateRect(m_hwnd, nullptr, FALSE);
+        });
+    }
+
+    // Start art fetcher
+    std::wstring artDir = GetAppDataPath() + L"\\art";
+    m_fetcher = std::make_unique<MetadataFetcher>(artDir, m_config.Get().steamGridDbApiKey);
+
+    // If the Repacks/FitGirl icon isn't cached yet, download it in the background.
+    // Once the file is on disk, post WM_USER+3 so the render thread can create
+    // the D2D bitmap (D2D is single-threaded; bitmap creation must stay on this thread).
+    {
+        std::wstring iconCachePath = GetAppDataPath() + L"\\repacks_icon.png";
+        if (GetFileAttributesW(iconCachePath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            std::thread([this]() {
+                std::wstring appDir = GetAppDataPath();
+                if (!PlatformIcons::DownloadRepacksIcon(appDir).empty())
+                    PostMessageW(m_hwnd, WM_USER + 3, 0, 0);
+            }).detach();
+        }
+    }
+
+    UpdateSidebarFlags();
+
+    // Kick off initial scan in background
+    std::thread([this]() { ScanAllPlatforms(); }).detach();
+
+    // Timers
+    SetTimer(m_hwnd, TIMER_ANIM,    16,  nullptr); // ~60fps
+    SetTimer(m_hwnd, TIMER_SAVE, 30000,  nullptr); // autosave every 30s
+
+    return true;
+}
+
+int App::Run() {
+    MSG msg;
+    while (GetMessageW(&msg, nullptr, 0, 0)) {
+        // Allow picker dialog to handle Tab/Enter keyboard navigation
+        if (m_picker.IsOpen() && IsDialogMessage(m_picker.GetHwnd(), &msg))
+            continue;
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    return (int)msg.wParam;
+}
+
+LRESULT CALLBACK App::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_CREATE) {
+        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lp);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)cs->lpCreateParams);
+        return 0;
+    }
+    auto* app = reinterpret_cast<App*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (app) return app->HandleMessage(hwnd, msg, wp, lp);
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_DESTROY:
+        OnDestroy();
+        PostQuitMessage(0);
+        return 0;
+
+    case WM_SIZE:
+        OnSize(LOWORD(lp), HIWORD(lp));
+        return 0;
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        BeginPaint(hwnd, &ps);
+        OnPaint();
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_TIMER:
+        OnTimer();
+        return 0;
+
+    case WM_MOUSEMOVE:
+        OnMouseMove((float)GET_X_LPARAM(lp), (float)GET_Y_LPARAM(lp));
+        return 0;
+
+    case WM_LBUTTONDOWN:
+        OnLButtonDown((float)GET_X_LPARAM(lp), (float)GET_Y_LPARAM(lp));
+        return 0;
+
+    case WM_LBUTTONUP:
+        OnLButtonUp((float)GET_X_LPARAM(lp), (float)GET_Y_LPARAM(lp));
+        return 0;
+
+    case WM_RBUTTONDOWN:
+        OnRButtonDown((float)GET_X_LPARAM(lp), (float)GET_Y_LPARAM(lp));
+        return 0;
+
+    case WM_CHAR:
+        OnChar((wchar_t)wp);
+        return 0;
+
+    case WM_KEYDOWN:
+        OnKeyDown(wp);
+        return 0;
+
+    case WM_SYSKEYDOWN:
+        // Alt key alone — show our menu bar instead of the default system menu
+        if (wp == VK_MENU && !m_menuActive) {
+            ShowMenuBar();
+            return 0;
+        }
+        break;
+
+    case WM_MOUSEWHEEL: {
+        short delta = GET_WHEEL_DELTA_WPARAM(wp);
+        OnScroll((float)delta);
+        return 0;
+    }
+
+    case WM_GETMINMAXINFO: {
+        auto* mm = reinterpret_cast<MINMAXINFO*>(lp);
+        mm->ptMinTrackSize = { 800, 500 };
+        return 0;
+    }
+
+    case WM_USER + 3:
+        // Background thread finished downloading the Repacks/FitGirl icon.
+        // Create the D2D bitmap here on the render thread.
+        m_platformIcons.TryDownloadAndLoadRepacks(m_renderer.GetRT(), m_renderer.GetWIC());
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return 0;
+
+    case WM_USER + 4: {
+        // Background thread signalled that a game's art is ready on disk.
+        // Create the D2D bitmap here on the render thread.
+        std::wstring* idPtr = reinterpret_cast<std::wstring*>(lp);
+        std::wstring  id    = std::move(*idPtr);
+        delete idPtr;
+        if (auto* g = m_library.FindById(id)) {
+            if (!g->coverArtPath.empty())
+                m_renderer.LoadGameArt(g->id, g->coverArtPath);
+        }
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return 0;
+    }
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+// ── Event handlers ────────────────────────────────────────────────────────────
+
+void App::OnCreate(HWND) {}
+
+void App::OnDestroy() {
+    if (m_metaManager) m_metaManager->Shutdown();
+    m_fetcher->Shutdown();
+    SaveAll();
+}
+
+void App::OnSize(UINT w, UINT h) {
+    if (w && h) {
+        m_renderer.Resize(w, h);
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+    }
+}
+
+void App::OnPaint() {
+    m_renderState.metaScanning = m_metaManager && m_metaManager->IsRunning();
+    m_renderer.Render(m_visibleGames, m_renderState);
+}
+
+void App::OnTimer() {
+    // Smooth scroll animation
+    float& s = m_renderState.scrollOffset;
+    float& t = m_renderState.targetScroll;
+    float diff = t - s;
+    if (fabsf(diff) > 0.5f) {
+        s += diff * 0.18f;
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+    } else {
+        s = t;
+    }
+
+    // Repaint if game is running (for any live updates)
+    if (m_monitor.IsRunning())
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void App::OnMouseMove(float x, float y) {
+    m_lastMouseX = x; m_lastMouseY = y;
+
+    // Auto-reveal menu bar: show when mouse is within 20px of the top edge
+    if (y < 20.0f && !m_menuActive)
+        ShowMenuBar();
+
+    int prev = m_renderState.hoveredIndex;
+
+    if (!m_renderState.detailOpen) {
+        m_renderState.hoveredIndex =
+            m_renderer.HitTestGrid(x, y, m_renderState, m_visibleGames.size());
+    }
+
+    if (m_renderState.hoveredIndex != prev)
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void App::OnLButtonDown(float x, float y) {
+    if (m_renderState.detailOpen) {
+        if (m_renderer.HitTestLaunchBtn(x, y)) {
+            if (m_renderState.detailIndex >= 0 &&
+                m_renderState.detailIndex < (int)m_visibleGames.size())
+                LaunchGame(*m_visibleGames[m_renderState.detailIndex]);
+        } else {
+            // Close detail view
+            m_renderState.detailOpen = false;
+            InvalidateRect(m_hwnd, nullptr, FALSE);
+        }
+        return;
+    }
+
+    if (m_renderer.HitTestSearch(x, y)) {
+        m_renderState.focusArea = FocusArea::Search;
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
+    if (m_renderer.HitTestSettingsBtn(x, y)) {
+        OpenSettings();
+        return;
+    }
+
+    Platform p; bool all;
+    if (m_renderer.HitTestSidebar(x, y, m_renderState, p, all)) {
+        m_renderState.filterAll      = all;
+        m_renderState.filterPlatform = p;
+        m_renderState.focusArea      = FocusArea::Sidebar;
+        ApplyFilter();
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
+    int idx = m_renderer.HitTestGrid(x, y, m_renderState, m_visibleGames.size());
+    if (idx >= 0) {
+        m_renderState.focusArea = FocusArea::Grid;
+        if (m_renderState.selectedIndex == idx) {
+            m_renderState.detailOpen = true;
+            m_renderState.detailIndex = idx;
+        } else {
+            m_renderState.selectedIndex = idx;
+        }
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+    } else {
+        // Click on background — return focus to grid
+        m_renderState.focusArea = FocusArea::Grid;
+    }
+}
+
+void App::OnLButtonUp(float x, float y) {
+    (void)x; (void)y;
+}
+
+void App::OnChar(wchar_t ch) {
+    if (m_renderState.focusArea != FocusArea::Search) return;
+    if (ch == L'\b') {
+        if (!m_renderState.searchQuery.empty())
+            m_renderState.searchQuery.pop_back();
+    } else if (ch == L'\t' || ch == L'\r' || ch == L'\x1B') {
+        return; // handled in OnKeyDown
+    } else if (ch >= 32) {
+        m_renderState.searchQuery += ch;
+    }
+    ApplyFilter();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void App::OnKeyDown(WPARAM vk) {
+    bool shift = (GetKeyState(VK_SHIFT)   & 0x8000) != 0;
+    bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+
+    // ── Detail panel — eats all keys while open ───────────────────────────────
+    if (m_renderState.detailOpen) {
+        int n = (int)m_visibleGames.size();
+        switch (vk) {
+        case VK_ESCAPE:
+        case VK_BACK:
+            m_renderState.detailOpen = false;
+            break;
+        case VK_RETURN:
+        case 'L':
+            if (m_renderState.detailIndex >= 0 && m_renderState.detailIndex < n)
+                LaunchGame(*m_visibleGames[m_renderState.detailIndex]);
+            break;
+        case 'M':
+            if (m_renderState.detailIndex >= 0 && m_renderState.detailIndex < n) {
+                auto* g = m_visibleGames[m_renderState.detailIndex];
+                OpenMetadataPicker(g->id, g->title);
+            }
+            break;
+        case 'E':
+            if (m_renderState.detailIndex >= 0 && m_renderState.detailIndex < n)
+                OpenEditTitle(m_renderState.detailIndex);
+            break;
+        case VK_LEFT:
+            if (m_renderState.detailIndex > 0) {
+                --m_renderState.detailIndex;
+                m_renderState.selectedIndex = m_renderState.detailIndex;
+            }
+            break;
+        case VK_RIGHT:
+            if (m_renderState.detailIndex < n - 1) {
+                ++m_renderState.detailIndex;
+                m_renderState.selectedIndex = m_renderState.detailIndex;
+            }
+            break;
+        }
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
+    // ── Global shortcuts (work in any focus area) ─────────────────────────────
+    if (vk == VK_F5) {
+        std::thread([this]() { ScanAllPlatforms(); }).detach();
+        return;
+    }
+    if (vk == VK_F2 || (ctrl && vk == VK_OEM_COMMA)) {
+        OpenSettings();
+        return;
+    }
+    if (vk == VK_F11) {
+        if (!m_fullscreen) {
+            GetWindowPlacement(m_hwnd, &m_savedPlacement);
+            DWORD style = (DWORD)GetWindowLongW(m_hwnd, GWL_STYLE);
+            SetWindowLongW(m_hwnd, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
+            MONITORINFO mi{ sizeof(mi) };
+            GetMonitorInfoW(MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTOPRIMARY), &mi);
+            auto& r = mi.rcMonitor;
+            SetWindowPos(m_hwnd, HWND_TOP, r.left, r.top,
+                         r.right - r.left, r.bottom - r.top,
+                         SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+            m_fullscreen = true;
+        } else {
+            DWORD style = (DWORD)GetWindowLongW(m_hwnd, GWL_STYLE);
+            SetWindowLongW(m_hwnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
+            SetWindowPlacement(m_hwnd, &m_savedPlacement);
+            SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                         SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+            m_fullscreen = false;
+        }
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+    // Ctrl+F or '/' → focus search
+    if ((ctrl && vk == 'F') || vk == VK_OEM_2) {
+        m_renderState.focusArea = FocusArea::Search;
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+    // Number keys 1-7: quick platform filter
+    if (vk >= '1' && vk <= '7' && m_renderState.focusArea != FocusArea::Search) {
+        ApplySidebarFilter((int)(vk - '1'));
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
+    // ── Tab: cycle focus areas ─────────────────────────────────────────────────
+    if (vk == VK_TAB) {
+        auto& fa = m_renderState.focusArea;
+        if (shift) {
+            if      (fa == FocusArea::Grid)    fa = FocusArea::Search;
+            else if (fa == FocusArea::Search)  fa = FocusArea::Sidebar;
+            else                               fa = FocusArea::Grid;
+        } else {
+            if      (fa == FocusArea::Grid)    fa = FocusArea::Sidebar;
+            else if (fa == FocusArea::Sidebar) fa = FocusArea::Search;
+            else                               fa = FocusArea::Grid;
+        }
+        // When entering sidebar, sync focus to active filter
+        if (m_renderState.focusArea == FocusArea::Sidebar) {
+            if (m_renderState.filterAll) {
+                m_renderState.sidebarFocusIdx = 0;
+            } else {
+                auto es = Renderer::BuildSidebarEntries(m_renderState);
+                for (int i = 1; i < (int)es.size(); ++i)
+                    if (es[i].p == m_renderState.filterPlatform)
+                        { m_renderState.sidebarFocusIdx = i; break; }
+            }
+        }
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
+    // ── Focus-area-specific keys ───────────────────────────────────────────────
+    switch (m_renderState.focusArea) {
+
+    case FocusArea::Search:
+        switch (vk) {
+        case VK_ESCAPE:
+            if (!m_renderState.searchQuery.empty()) {
+                m_renderState.searchQuery.clear();
+                ApplyFilter();
+            } else {
+                m_renderState.focusArea = FocusArea::Grid;
+            }
+            break;
+        case VK_RETURN:
+        case VK_DOWN:
+            m_renderState.focusArea = FocusArea::Grid;
+            if (!m_visibleGames.empty() && m_renderState.selectedIndex < 0)
+                m_renderState.selectedIndex = 0;
+            break;
+        }
+        break;
+
+    case FocusArea::Sidebar: {
+        int& si = m_renderState.sidebarFocusIdx;
+        switch (vk) {
+        case VK_UP:    si = std::max(0, si - 1);                                                     break;
+        case VK_DOWN:  si = std::min(Renderer::GetSidebarEntryCount(m_renderState) - 1, si + 1);   break;
+        case VK_HOME:  si = 0;                                                                       break;
+        case VK_END:   si = Renderer::GetSidebarEntryCount(m_renderState) - 1;                     break;
+        case VK_RETURN:
+        case VK_SPACE:
+            ApplySidebarFilter(si);
+            m_renderState.focusArea = FocusArea::Grid;
+            break;
+        case VK_ESCAPE:
+            m_renderState.focusArea = FocusArea::Grid;
+            break;
+        }
+        break;
+    }
+
+    case FocusArea::Grid: {
+        int n   = (int)m_visibleGames.size();
+        int& sel = m_renderState.selectedIndex;
+        int cols = m_renderer.GetCols();
+        switch (vk) {
+        case VK_ESCAPE:
+            if (!m_renderState.searchQuery.empty()) {
+                m_renderState.searchQuery.clear();
+                ApplyFilter();
+            } else if (m_fullscreen) {
+                DWORD style = (DWORD)GetWindowLongW(m_hwnd, GWL_STYLE);
+                SetWindowLongW(m_hwnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
+                SetWindowPlacement(m_hwnd, &m_savedPlacement);
+                SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                             SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+                m_fullscreen = false;
+            }
+            break;
+        case VK_RETURN:
+            if (sel >= 0 && sel < n) {
+                m_renderState.detailOpen  = true;
+                m_renderState.detailIndex = sel;
+            } else if (n > 0) {
+                sel = 0;
+            }
+            break;
+        case VK_LEFT:
+            if (n == 0) break;
+            sel = (sel <= 0) ? 0 : sel - 1;
+            ScrollToSelected();
+            break;
+        case VK_RIGHT:
+            if (n == 0) break;
+            sel = (sel < 0) ? 0 : std::min(sel + 1, n - 1);
+            ScrollToSelected();
+            break;
+        case VK_UP:
+            if (n == 0) break;
+            if (sel < 0) sel = 0;
+            else sel = std::max(0, sel - cols);
+            ScrollToSelected();
+            break;
+        case VK_DOWN:
+            if (n == 0) break;
+            if (sel < 0) sel = 0;
+            else sel = std::min(n - 1, sel + cols);
+            ScrollToSelected();
+            break;
+        case VK_HOME:
+            if (n > 0) { sel = 0; m_renderState.targetScroll = 0; }
+            break;
+        case VK_END:
+            if (n > 0) { sel = n - 1; ScrollToSelected(); }
+            break;
+        case VK_PRIOR: { // Page Up
+            RECT rc; GetClientRect(m_hwnd, &rc);
+            m_renderState.targetScroll = std::max(0.0f,
+                m_renderState.targetScroll - (float)(rc.bottom - rc.top - 80));
+            break;
+        }
+        case VK_NEXT: { // Page Down
+            RECT rc; GetClientRect(m_hwnd, &rc);
+            float viewH = (float)(rc.bottom - rc.top);
+            int rows = ((int)m_visibleGames.size() + cols - 1) / cols;
+            float rowH = 260.0f + 16.0f + 22.0f;
+            float maxScroll = std::max(0.0f, rows * rowH - viewH + 80.0f);
+            m_renderState.targetScroll = std::min(
+                m_renderState.targetScroll + viewH - 80.0f, maxScroll);
+            break;
+        }
+        }
+        break;
+    }
+    } // switch focusArea
+
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void App::OnScroll(float delta) {
+    if (m_renderState.detailOpen) return;
+    m_renderState.targetScroll -= delta * 0.5f;
+    m_renderState.targetScroll = std::max(0.0f, m_renderState.targetScroll);
+    // Max scroll: rough upper bound
+    RECT rc; GetClientRect(m_hwnd, &rc);
+    int rows = ((int)m_visibleGames.size() + 4) / 5;
+    float maxScroll = std::max(0.0f, rows * (260.0f + 16.0f + 22.0f) - (float)(rc.bottom - rc.top) + 80.0f);
+    m_renderState.targetScroll = std::min(m_renderState.targetScroll, maxScroll);
+}
+
+// ── Core logic ────────────────────────────────────────────────────────────────
+
+// Returns the largest non-installer exe in a directory (top level only).
+static std::wstring FindMainExe(const std::wstring& dir) {
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((dir + L"\\*.exe").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return {};
+    std::wstring best;
+    ULONGLONG bestSize = 0;
+    do {
+        std::wstring lower = fd.cFileName;
+        for (auto& c : lower) c = (wchar_t)towlower(c);
+        if (lower.find(L"unins") != std::wstring::npos) continue;
+        if (lower.find(L"setup") != std::wstring::npos) continue;
+        if (lower.find(L"install") != std::wstring::npos) continue;
+        if (lower.find(L"redist") != std::wstring::npos) continue;
+        if (lower.find(L"vcredist") != std::wstring::npos) continue;
+        ULONGLONG sz = ((ULONGLONG)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+        if (sz > bestSize) { bestSize = sz; best = dir + L"\\" + fd.cFileName; }
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    return best;
+}
+
+void App::ShowMenuBar() {
+    auto& emu = m_config.Get().emulators;
+
+    HMENU hTools = CreatePopupMenu();
+    bool anyTool = false;
+
+    auto addTool = [&](UINT id, const wchar_t* label, const std::wstring& path) {
+        UINT flags = MF_STRING | (path.empty() ? MF_GRAYED : 0);
+        AppendMenuW(hTools, flags, id, label);
+        anyTool = true;
+    };
+
+    addTool(IDM_TOOL_DOLPHIN, L"Launch Dolphin",  emu.dolphinPath);
+    addTool(IDM_TOOL_RYUJINX, L"Launch Ryujinx",  emu.ryujinxPath);
+    addTool(IDM_TOOL_RPCS3,   L"Launch RPCS3",    emu.rpcs3Path);
+    addTool(IDM_TOOL_N64,     L"Launch N64 Emulator", emu.n64Path);
+    addTool(IDM_TOOL_NES,     L"Launch NES Emulator", emu.nesPath);
+    addTool(IDM_TOOL_SNES,    L"Launch SNES Emulator", emu.snesPath);
+
+    HMENU hMenuBar = CreatePopupMenu();
+    AppendMenuW(hMenuBar, MF_POPUP, (UINT_PTR)hTools, L"Tools");
+
+    POINT pt = { 0, 0 };
+    ClientToScreen(m_hwnd, &pt);
+
+    m_menuActive = true;
+    int cmd = TrackPopupMenu(hMenuBar, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
+                             pt.x, pt.y, 0, m_hwnd, nullptr);
+    m_menuActive = false;
+    DestroyMenu(hMenuBar); // also destroys hTools as a child
+
+    auto launchStandalone = [this](const std::wstring& path, const std::wstring& args) {
+        if (path.empty()) return;
+        std::wstring workDir;
+        size_t sep = path.rfind(L'\\');
+        if (sep != std::wstring::npos) workDir = path.substr(0, sep);
+        m_monitor.Launch(path, args, workDir, [](uint64_t) {});
+    };
+
+    switch (cmd) {
+    case IDM_TOOL_DOLPHIN: launchStandalone(emu.dolphinPath, emu.dolphinArgs); break;
+    case IDM_TOOL_RYUJINX: launchStandalone(emu.ryujinxPath, emu.ryujinxArgs); break;
+    case IDM_TOOL_RPCS3:   launchStandalone(emu.rpcs3Path,   emu.rpcs3Args);   break;
+    case IDM_TOOL_N64:     launchStandalone(emu.n64Path,     emu.n64Args);     break;
+    case IDM_TOOL_NES:     launchStandalone(emu.nesPath,     emu.nesArgs);     break;
+    case IDM_TOOL_SNES:    launchStandalone(emu.snesPath,    emu.snesArgs);    break;
+    }
+}
+
+void App::ScanAllPlatforms() {
+    auto& lib = m_config.Get().libraries;
+    auto& emu = m_config.Get().emulators;
+
+    std::vector<std::unique_ptr<IScanner>> scanners;
+    if (lib.steamEnabled)
+        scanners.push_back(std::make_unique<SteamScanner>(lib.steamPath, lib.steamExtraFolders));
+    if (lib.epicEnabled)
+        scanners.push_back(std::make_unique<EpicScanner>(lib.epicManifestDirs));
+    if (lib.gogEnabled)
+        scanners.push_back(std::make_unique<GogScanner>());
+
+    if (emu.dolphinEnabled && !emu.dolphinPath.empty()) {
+        EmulatorRomConfig dc;
+        dc.platform     = Platform::Dolphin;
+        dc.emulatorPath = emu.dolphinPath;
+        dc.emulatorArgs = emu.dolphinArgs.empty() ?
+            L"--batch --exec {rom}" : emu.dolphinArgs;
+        dc.romDirs      = emu.dolphinRomDirs;
+        dc.extensions   = { L"iso", L"gcm", L"rvz", L"gcz", L"wbfs", L"dol", L"elf" };
+        scanners.push_back(std::make_unique<EmulatorScanner>(std::move(dc)));
+    }
+
+    if (emu.ryujinxEnabled && !emu.ryujinxPath.empty()) {
+        EmulatorRomConfig rc;
+        rc.platform     = Platform::Ryujinx;
+        rc.emulatorPath = emu.ryujinxPath;
+        rc.emulatorArgs = emu.ryujinxArgs.empty() ? L"{rom}" : emu.ryujinxArgs;
+        rc.romDirs      = emu.ryujinxRomDirs;
+        rc.extensions   = { L"nsp", L"xci", L"nca", L"nro" };
+        scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
+    }
+
+    if (emu.rpcs3Enabled && !emu.rpcs3Path.empty()) {
+        EmulatorRomConfig rc;
+        rc.platform     = Platform::RPCS3;
+        rc.emulatorPath = emu.rpcs3Path;
+        rc.emulatorArgs = emu.rpcs3Args.empty() ? L"--no-gui {rom}" : emu.rpcs3Args;
+        rc.romDirs      = emu.rpcs3RomDirs;
+        rc.extensions   = { L"iso", L"pkg", L"bin", L"ps3" };
+        scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
+    }
+
+    if (emu.n64Enabled && !emu.n64Path.empty()) {
+        EmulatorRomConfig rc;
+        rc.platform     = Platform::N64;
+        rc.emulatorPath = emu.n64Path;
+        rc.emulatorArgs = emu.n64Args.empty() ? L"{rom}" : emu.n64Args;
+        rc.romDirs      = emu.n64RomDirs;
+        rc.extensions   = { L"z64", L"n64", L"v64", L"rom" };
+        scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
+    }
+
+    if (emu.nesEnabled && !emu.nesPath.empty()) {
+        EmulatorRomConfig rc;
+        rc.platform     = Platform::NES;
+        rc.emulatorPath = emu.nesPath;
+        rc.emulatorArgs = emu.nesArgs.empty() ? L"{rom}" : emu.nesArgs;
+        rc.romDirs      = emu.nesRomDirs;
+        rc.extensions   = { L"nes", L"fds", L"unf", L"unif" };
+        scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
+    }
+
+    if (emu.snesEnabled && !emu.snesPath.empty()) {
+        EmulatorRomConfig rc;
+        rc.platform     = Platform::SNES;
+        rc.emulatorPath = emu.snesPath;
+        rc.emulatorArgs = emu.snesArgs.empty() ? L"{rom}" : emu.snesArgs;
+        rc.romDirs      = emu.snesRomDirs;
+        rc.extensions   = { L"sfc", L"smc", L"fig", L"bs", L"st" };
+        scanners.push_back(std::make_unique<EmulatorScanner>(std::move(rc)));
+    }
+
+    std::vector<Game> all;
+    for (auto& s : scanners) {
+        auto games = s->Scan();
+        all.insert(all.end(), games.begin(), games.end());
+    }
+
+    // Custom libraries: one level deep, each subdir is one game
+    for (auto& cl : lib.customLibraries) {
+        if (!cl.enabled) continue;
+        for (auto& rootDir : cl.dirs) {
+            WIN32_FIND_DATAW fd;
+            HANDLE h = FindFirstFileW((rootDir + L"\\*").c_str(), &fd);
+            if (h == INVALID_HANDLE_VALUE) continue;
+            do {
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+                if (fd.cFileName[0] == L'.') continue;
+                std::wstring gameDir = rootDir + L"\\" + fd.cFileName;
+                std::wstring exe = FindMainExe(gameDir);
+                if (exe.empty()) continue;
+                Game g;
+                g.id       = L"custom_" + std::wstring(fd.cFileName);
+                g.title    = fd.cFileName;
+                g.platform = Platform::Repacks;
+                g.exePath  = exe;
+                all.push_back(std::move(g));
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+    }
+
+    m_library.MergeGames(std::move(all));
+
+    // Kick off IGDB metadata scan for unmatched games
+    if (m_metaManager) {
+        m_metaManager->ScanAllAsync([this](const std::wstring& id, bool /*matched*/) {
+            // Signal main thread to load art; D2D bitmap creation must be on the render thread
+            PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(id));
+        });
+    }
+
+    // Kick off art fetches for games missing art
+    for (auto& g : m_library.All()) {
+        if (g.coverArtPath.empty()) {
+            Game copy = g;
+            m_fetcher->FetchArtAsync(copy, [this, id = g.id](const std::wstring& path) {
+                if (auto* pg = m_library.FindById(id))
+                    pg->coverArtPath = path;
+                PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(id));
+            });
+        } else {
+            // Already have art path — still must load on the main thread
+            PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(g.id));
+        }
+    }
+
+    UpdateSidebarFlags();
+
+    // Refresh visible list on main thread
+    PostMessageW(m_hwnd, WM_USER + 1, 0, 0);
+    ApplyFilter();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void App::LaunchGame(const Game& game) {
+    if (m_monitor.IsRunning()) return;
+
+    bool ok = false;
+
+    if (!game.launchUri.empty()) {
+        // URI launch (Steam, Epic)
+        std::wstring hint;
+        if (game.platform == Platform::Steam)
+            hint = L"steam.exe"; // wait for game process by hint — hard for Steam
+        ok = m_monitor.LaunchUri(game.launchUri, hint, 30,
+            [this, id = game.id](uint64_t elapsed) {
+                if (auto* g = m_library.FindById(id)) {
+                    g->playtimeSeconds += elapsed;
+                    g->lastPlayed = (int64_t)std::chrono::duration_cast<
+                        std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                }
+                PostMessageW(m_hwnd, WM_PAINT, 0, 0);
+            });
+    } else if (!game.emulatorPath.empty()) {
+        // Emulator launch
+        std::wstring args = game.arguments;
+        ok = m_monitor.Launch(game.emulatorPath, args, {},
+            [this, id = game.id](uint64_t elapsed) {
+                if (auto* g = m_library.FindById(id)) {
+                    g->playtimeSeconds += elapsed;
+                    g->lastPlayed = (int64_t)std::chrono::duration_cast<
+                        std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                }
+                PostMessageW(m_hwnd, WM_PAINT, 0, 0);
+            });
+    } else if (!game.exePath.empty()) {
+        // Direct exe
+        std::wstring workDir;
+        size_t sep = game.exePath.rfind(L'\\');
+        if (sep != std::wstring::npos) workDir = game.exePath.substr(0, sep);
+        ok = m_monitor.Launch(game.exePath, game.arguments, workDir,
+            [this, id = game.id](uint64_t elapsed) {
+                if (auto* g = m_library.FindById(id)) {
+                    g->playtimeSeconds += elapsed;
+                    g->lastPlayed = (int64_t)std::chrono::duration_cast<
+                        std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                }
+                PostMessageW(m_hwnd, WM_PAINT, 0, 0);
+            });
+    }
+
+    if (ok && m_config.Get().minimizeOnLaunch)
+        ShowWindow(m_hwnd, SW_MINIMIZE);
+}
+
+void App::ApplyFilter() {
+    if (!m_renderState.searchQuery.empty()) {
+        auto res = m_library.Search(m_renderState.searchQuery);
+        m_visibleGames = res;
+    } else if (m_renderState.filterAll) {
+        m_visibleGames.clear();
+        for (auto& g : m_library.All()) m_visibleGames.push_back(&g);
+    } else {
+        m_visibleGames = m_library.Filter(m_renderState.filterPlatform);
+    }
+
+    // Sort: most recently played first, then alpha
+    std::sort(m_visibleGames.begin(), m_visibleGames.end(),
+        [](const Game* a, const Game* b) {
+            if (a->lastPlayed != b->lastPlayed) return a->lastPlayed > b->lastPlayed;
+            return a->title < b->title;
+        });
+
+    m_renderState.selectedIndex = -1;
+    m_renderState.scrollOffset  = 0;
+    m_renderState.targetScroll  = 0;
+}
+
+void App::UpdateSidebarFlags() {
+    auto& lib = m_config.Get().libraries;
+    auto& emu = m_config.Get().emulators;
+    m_renderState.showSteam   = lib.steamEnabled;
+    m_renderState.showEpic    = lib.epicEnabled;
+    m_renderState.showGog     = lib.gogEnabled;
+    m_renderState.showDolphin = emu.dolphinEnabled && !emu.dolphinPath.empty();
+    m_renderState.showRyujinx = emu.ryujinxEnabled && !emu.ryujinxPath.empty();
+    m_renderState.showRPCS3   = emu.rpcs3Enabled   && !emu.rpcs3Path.empty();
+    m_renderState.showN64     = emu.n64Enabled     && !emu.n64Path.empty();
+    m_renderState.showNES     = emu.nesEnabled     && !emu.nesPath.empty();
+    m_renderState.showSNES    = emu.snesEnabled    && !emu.snesPath.empty();
+    m_renderState.showRepacks = std::any_of(lib.customLibraries.begin(),
+        lib.customLibraries.end(), [](const CustomLibraryConfig& cl) { return cl.enabled; });
+    int count = Renderer::GetSidebarEntryCount(m_renderState);
+    if (m_renderState.sidebarFocusIdx >= count)
+        m_renderState.sidebarFocusIdx = count - 1;
+}
+
+void App::ApplySidebarFilter(int idx) {
+    auto entries = Renderer::BuildSidebarEntries(m_renderState);
+    if (idx < 0 || idx >= (int)entries.size()) return;
+    m_renderState.filterAll      = entries[idx].all;
+    m_renderState.filterPlatform = entries[idx].p;
+    ApplyFilter();
+}
+
+void App::ScrollToSelected() {
+    if (m_renderState.selectedIndex < 0 || m_visibleGames.empty()) return;
+    RECT rc; GetClientRect(m_hwnd, &rc);
+    m_renderState.targetScroll = m_renderer.ScrollForSelected(
+        m_renderState.selectedIndex,
+        m_renderState.targetScroll,
+        (float)(rc.bottom - rc.top));
+}
+
+void App::OnRButtonDown(float x, float y) {
+    if (m_renderState.detailOpen) return;
+
+    int idx = m_renderer.HitTestGrid(x, y, m_renderState, m_visibleGames.size());
+    if (idx < 0) return;
+
+    // Select the right-clicked game so it's visually highlighted
+    m_renderState.selectedIndex = idx;
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+
+    HMENU menu = CreatePopupMenu();
+    AppendMenuW(menu, MF_STRING, IDM_LAUNCH, L"Launch");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, IDM_EDIT_TITLE, L"Edit Title…");
+    UINT matchFlags = MF_STRING | (m_metaManager ? 0 : MF_GRAYED);
+    AppendMenuW(menu, matchFlags, IDM_MATCH_META, L"Match Metadata…");
+
+    if (m_monitor.IsRunning())
+        EnableMenuItem(menu, IDM_LAUNCH, MF_BYCOMMAND | MF_GRAYED);
+
+    POINT pt = { (LONG)x, (LONG)y };
+    ClientToScreen(m_hwnd, &pt);
+    int cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
+                              pt.x, pt.y, 0, m_hwnd, nullptr);
+    DestroyMenu(menu);
+
+    if (cmd == IDM_LAUNCH) {
+        if (idx < (int)m_visibleGames.size())
+            LaunchGame(*m_visibleGames[idx]);
+    } else if (cmd == IDM_EDIT_TITLE) {
+        OpenEditTitle(idx);
+    } else if (cmd == IDM_MATCH_META) {
+        if (idx < (int)m_visibleGames.size())
+            OpenMetadataPicker(m_visibleGames[idx]->id, m_visibleGames[idx]->title);
+    }
+}
+
+void App::OpenEditTitle(int visibleIdx) {
+    if (visibleIdx < 0 || visibleIdx >= (int)m_visibleGames.size()) return;
+
+    // FindById so we hold a stable pointer into the library (not the visible list)
+    const Game* cv = m_visibleGames[visibleIdx];
+    Game* g = m_library.FindById(cv->id);
+    if (!g) return;
+
+    bool isEmulated = (g->platform == Platform::Dolphin ||
+                       g->platform == Platform::Ryujinx ||
+                       g->platform == Platform::RPCS3   ||
+                       g->platform == Platform::N64     ||
+                       g->platform == Platform::NES     ||
+                       g->platform == Platform::SNES);
+
+    GameEditDialog dlg;
+    dlg.Show(m_hwnd, g->title, isEmulated, g->igdbPlatformId);
+    if (!dlg.confirmed) return;
+
+    // Update title and platform override
+    g->title          = dlg.newTitle;
+    g->igdbPlatformId = dlg.selectedIgdbPlatformId;
+
+    // Rename ROM file on disk if requested
+    if (dlg.renameFile && !g->romPath.empty()) {
+        size_t sep = g->romPath.rfind(L'\\');
+        size_t dot = g->romPath.rfind(L'.');
+        std::wstring dir = (sep != std::wstring::npos) ?
+                            g->romPath.substr(0, sep + 1) : L"";
+        std::wstring ext = (dot != std::wstring::npos && dot > sep) ?
+                            g->romPath.substr(dot) : L"";
+        std::wstring newPath = dir + dlg.newTitle + ext;
+
+        if (MoveFileW(g->romPath.c_str(), newPath.c_str())) {
+            // Patch the quoted rom path in the launch arguments
+            auto replaceInArgs = [](std::wstring& args,
+                                    const std::wstring& oldP,
+                                    const std::wstring& newP) {
+                std::wstring oldQ = L"\"" + oldP + L"\"";
+                std::wstring newQ = L"\"" + newP + L"\"";
+                size_t pos = args.find(oldQ);
+                if (pos != std::wstring::npos)
+                    args.replace(pos, oldQ.size(), newQ);
+            };
+            replaceInArgs(g->arguments, g->romPath, newPath);
+            g->romPath = newPath;
+        } else {
+            MessageBoxW(m_hwnd,
+                (L"Could not rename file:\n" + g->romPath).c_str(),
+                L"Rename Failed", MB_OK | MB_ICONWARNING);
+        }
+    }
+
+    // Clear IGDB match so the new title triggers a fresh metadata search
+    g->igdbMatched = false;
+    if (m_metaManager) {
+        m_metaManager->ScanGameAsync(g->id,
+            [this](const std::wstring& id, bool /*matched*/) {
+                PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(id));
+            });
+    }
+
+    ApplyFilter();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void App::OpenMetadataPicker(const std::wstring& gameId, const std::wstring& gameTitle) {
+    if (!m_metaManager || m_picker.IsOpen()) return;
+
+    m_picker.Open(m_hwnd, gameId, gameTitle, *m_metaManager,
+        [this](const std::wstring& id) {
+            // Art is ready — reload on the render thread
+            PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(id));
+        });
+}
+
+void App::OpenSettings() {
+    if (m_settings.IsOpen()) return;
+
+    SaveAll();
+
+    // Shared lambda to (re-)wire IGDB client whenever credentials may have changed.
+    auto rewireIgdb = [this]() {
+        auto& cfg = m_config.Get();
+        if (!cfg.igdbClientId.empty()) {
+            m_igdbClient.SetCredentials(cfg.igdbClientId, cfg.igdbClientSecret);
+            if (!cfg.igdbAccessToken.empty())
+                m_igdbClient.RestoreToken(cfg.igdbAccessToken, cfg.igdbTokenExpiry);
+            if (!m_metaManager) {
+                std::wstring artDir = GetAppDataPath() + L"\\art";
+                m_metaManager = std::make_unique<MetadataManager>(
+                    m_library, m_igdbClient, artDir);
+            }
+        }
+    };
+
+    auto metaProgressCb = [this](const std::wstring& id, bool /*matched*/) {
+        PostMessageW(m_hwnd, WM_USER + 4, 0, (LPARAM)new std::wstring(id));
+    };
+
+    m_settings.Open(m_hwnd, m_config.Get(),
+        /* onSave */ [this, rewireIgdb]() {
+            rewireIgdb();
+            SaveAll();
+            m_renderer.LoadPlatformIcons(m_platformIcons, m_config.Get().emulators);
+            UpdateSidebarFlags();
+            std::thread([this]() { ScanAllPlatforms(); }).detach();
+            InvalidateRect(m_hwnd, nullptr, FALSE);
+        },
+        /* onRefreshMeta */ [this, rewireIgdb, metaProgressCb]() {
+            rewireIgdb();
+            if (m_metaManager)
+                m_metaManager->ScanAllAsync(metaProgressCb);
+            InvalidateRect(m_hwnd, nullptr, FALSE);
+        },
+        /* onReacquireMeta */ [this, rewireIgdb, metaProgressCb]() {
+            rewireIgdb();
+            if (m_metaManager)
+                m_metaManager->ForceRescanAllAsync(metaProgressCb);
+            InvalidateRect(m_hwnd, nullptr, FALSE);
+        });
+}
+
+void App::SaveAll() {
+    std::wstring appData = GetAppDataPath();
+    CreateDirectoryW(appData.c_str(), nullptr);
+
+    // Persist any refreshed IGDB token so we don't re-auth every launch
+    if (m_igdbClient.IsAuthenticated()) {
+        m_config.Get().igdbAccessToken = m_igdbClient.SavedToken();
+        m_config.Get().igdbTokenExpiry = m_igdbClient.TokenExpiry();
+    }
+
+    m_library.Save(appData + L"\\library.json");
+    m_config.Save(appData + L"\\config.json");
+}
+
+void App::LoadAll() {
+    std::wstring appData = GetAppDataPath();
+    CreateDirectoryW(appData.c_str(), nullptr);
+    m_config.Load(appData + L"\\config.json");
+    m_library.Load(appData + L"\\library.json");
+}

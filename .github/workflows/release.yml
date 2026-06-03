@@ -1,0 +1,84 @@
+name: Release
+
+# Triggers only on version tags like "v1.2.3" that point to a commit on main.
+# Workflow:
+#   1. Develop on staging, test locally.
+#   2. When ready: merge staging → main (or have Claude push staging to main).
+#   3. Bump Version.h, commit on main.
+#   4. git tag v1.2.3 && git push origin main v1.2.3
+#   5. This workflow fires → builds MSI → creates GitHub Release.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+    branches:
+      - main   # tag must be reachable from main
+
+permissions:
+  contents: write   # needed to create GitHub Releases and upload assets
+
+jobs:
+  build:
+    name: Build & Package
+    runs-on: windows-latest
+
+    steps:
+      # ── 1. Source ─────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Build toolchain ────────────────────────────────────────────────────
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Set up .NET (for WiX CLI)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.x"
+
+      - name: Install WiX v4
+        run: |
+          dotnet tool install --global wix --version 4.0.5
+          wix extension add WixToolset.UI.wixext/4.0.5 --global
+
+      # ── 3. Compile (Release|x64) ──────────────────────────────────────────────
+      - name: Build Release
+        run: |
+          msbuild GameLauncher.sln `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /m /nologo `
+            /p:TreatWarningsAsErrors=false
+
+      # ── 4. Package MSI ────────────────────────────────────────────────────────
+      - name: Create dist directory
+        run: New-Item -ItemType Directory -Force dist
+
+      - name: Build MSI
+        run: |
+          wix build installer\ArcadeLauncher.wxs `
+            -ext WixToolset.UI.wixext `
+            -d "BinDir=bin\Release" `
+            -out "dist\ArcadeLauncher-x64.msi" `
+            -arch x64
+
+      # ── 5. Collect artifacts ──────────────────────────────────────────────────
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArcadeLauncher-${{ github.ref_name }}
+          path: |
+            dist\ArcadeLauncher-x64.msi
+            bin\Release\ArcadeLauncher.exe
+
+      # ── 6. Create GitHub Release ──────────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ArcadeLauncher ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist/ArcadeLauncher-x64.msi
+            bin/Release/ArcadeLauncher.exe

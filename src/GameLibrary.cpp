@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "GameLibrary.h"
+#include <set>
 
 void GameLibrary::AddGame(Game game) {
     std::lock_guard<std::mutex> lk(m_mutex);
@@ -22,28 +23,46 @@ void GameLibrary::UpdateGame(const Game& game) {
 
 void GameLibrary::MergeGames(std::vector<Game> scanned) {
     std::lock_guard<std::mutex> lk(m_mutex);
+
+    // Identify which platforms are covered by this scan.
+    std::unordered_map<std::wstring, const Game*> oldById;
+    std::set<int> scannedPlatforms;
+    for (auto& s : scanned)
+        scannedPlatforms.insert(static_cast<int>(s.platform));
+
+    // Build an ID → old-game map for every entry in those platforms so we
+    // can transplant playtime / IGDB metadata onto the fresh entries.
+    for (auto& g : m_games)
+        if (scannedPlatforms.count(static_cast<int>(g.platform)))
+            oldById[g.id] = &g;
+
+    // Transplant metadata from old entries into fresh scan results.
     for (auto& s : scanned) {
-        bool found = false;
-        for (auto& g : m_games) {
-            if (g.id == s.id) {
-                // Preserve playtime, stats, and IGDB metadata on rescan
-                s.playtimeSeconds = g.playtimeSeconds;
-                s.lastPlayed      = g.lastPlayed;
-                s.coverArtPath    = g.coverArtPath;
-                s.igdbId          = g.igdbId;
-                s.igdbMatched     = g.igdbMatched;
-                s.summary         = g.summary;
-                s.genres          = g.genres;
-                s.igdbRating      = g.igdbRating;
-                s.releaseDate     = g.releaseDate;
-                s.igdbPlatformId  = g.igdbPlatformId;
-                g = std::move(s);
-                found = true;
-                break;
-            }
+        auto it = oldById.find(s.id);
+        if (it != oldById.end()) {
+            const Game* old = it->second;
+            s.playtimeSeconds = old->playtimeSeconds;
+            s.lastPlayed      = old->lastPlayed;
+            s.coverArtPath    = old->coverArtPath;
+            s.igdbId          = old->igdbId;
+            s.igdbMatched     = old->igdbMatched;
+            s.summary         = old->summary;
+            s.genres          = old->genres;
+            s.igdbRating      = old->igdbRating;
+            s.releaseDate     = old->releaseDate;
+            s.igdbPlatformId  = old->igdbPlatformId;
         }
-        if (!found) m_games.push_back(std::move(s));
     }
+
+    // Remove ALL stale entries for scanned platforms — including old alternates
+    // and duplicate accumulations — then add the freshly-deduplicated results.
+    m_games.erase(std::remove_if(m_games.begin(), m_games.end(),
+        [&](const Game& g) {
+            return scannedPlatforms.count(static_cast<int>(g.platform)) > 0;
+        }), m_games.end());
+
+    for (auto& s : scanned)
+        m_games.push_back(std::move(s));
 }
 
 std::vector<const Game*> GameLibrary::Filter(Platform p) const {

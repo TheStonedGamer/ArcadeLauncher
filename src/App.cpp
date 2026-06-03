@@ -169,6 +169,12 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         break;
 
+    case WM_GAME_CLOSED:
+        // A launched game just exited — restore the launcher to the front.
+        ShowWindow_(true);
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return 0;
+
     case WM_TRAYICON:
         switch (LOWORD(lp)) {
         case WM_LBUTTONDBLCLK:
@@ -301,8 +307,19 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 L"Update Failed", MB_OK | MB_ICONWARNING);
         } else {
             // msiexec is running — exit immediately so it can replace the binary.
-            // Use ExitProcess instead of DestroyWindow so we don't block on
-            // network/fetch thread shutdown (which would hold the file lock).
+            // Schedule a PowerShell one-liner that waits 10 s then relaunches us,
+            // then call ExitProcess so no thread holds a file lock on the exe.
+            wchar_t exePath[MAX_PATH]{};
+            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+
+            std::wstring psCmd =
+                L"Start-Sleep -Seconds 10; "
+                L"Start-Process -FilePath '" + std::wstring(exePath) + L"'";
+            std::wstring psArgs =
+                L"-NoProfile -WindowStyle Hidden -Command \"" + psCmd + L"\"";
+            ShellExecuteW(nullptr, L"open", L"powershell.exe",
+                          psArgs.c_str(), nullptr, SW_HIDE);
+
             SaveAll();
             RemoveTrayIcon();
             ExitProcess(0);
@@ -936,7 +953,7 @@ void App::LaunchGame(const Game& game) {
                         std::chrono::seconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count();
                 }
-                PostMessageW(m_hwnd, WM_PAINT, 0, 0);
+                PostMessageW(m_hwnd, WM_GAME_CLOSED, 0, 0);
             });
     } else if (!game.emulatorPath.empty()) {
         // Emulator launch
@@ -949,7 +966,7 @@ void App::LaunchGame(const Game& game) {
                         std::chrono::seconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count();
                 }
-                PostMessageW(m_hwnd, WM_PAINT, 0, 0);
+                PostMessageW(m_hwnd, WM_GAME_CLOSED, 0, 0);
             });
     } else if (!game.exePath.empty()) {
         // Direct exe
@@ -964,7 +981,7 @@ void App::LaunchGame(const Game& game) {
                         std::chrono::seconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count();
                 }
-                PostMessageW(m_hwnd, WM_PAINT, 0, 0);
+                PostMessageW(m_hwnd, WM_GAME_CLOSED, 0, 0);
             });
     }
 

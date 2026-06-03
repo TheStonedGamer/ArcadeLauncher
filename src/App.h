@@ -99,7 +99,8 @@ private:
     static constexpr UINT TIMER_SAVE   = 3;
 
     // Window messages
-    static constexpr UINT WM_TRAYICON = WM_USER + 100;
+    static constexpr UINT WM_TRAYICON    = WM_USER + 100;
+    static constexpr UINT WM_GAME_CLOSED = WM_USER + 101;
 
     // Context menu command IDs
     static constexpr UINT IDM_LAUNCH      = 5001;

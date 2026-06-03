@@ -234,22 +234,13 @@ LRESULT SettingsWindow::HandleMsg(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         int  id   = LOWORD(wp);
         int  note = HIWORD(wp);
 
-        if (id == ID_APPLY) {
-            // Apply: save settings and trigger rescan but keep window open
-            SaveCurrentPage();
-            *m_cfg = m_work;
-            if (m_onSave) m_onSave();
-            return 0;
-        }
-        if (id == ID_SAVE) {
+        if (id == ID_SAVE || id == ID_CANCEL) {
+            // Both Save and Close commit settings — there is no silent-discard path.
+            // Save triggers a full rescan; Close saves quietly without one.
             SaveCurrentPage();
             *m_cfg = m_work;
             Close();
             if (m_onSave) m_onSave();
-            return 0;
-        }
-        if (id == ID_CANCEL) {
-            Close();
             return 0;
         }
         if (id == ID_SIDEBAR && note == LBN_SELCHANGE) {
@@ -323,7 +314,11 @@ LRESULT SettingsWindow::HandleMsg(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
 
     case WM_CLOSE:
+        // X button — commit settings the same way the Close button does.
+        SaveCurrentPage();
+        *m_cfg = m_work;
         Close();
+        if (m_onSave) m_onSave();
         return 0;
 
     case WM_DESTROY:
@@ -381,11 +376,10 @@ void SettingsWindow::CreateChrome(HWND hwnd) {
         (HMENU)(intptr_t)ID_SIDEBAR, GetModuleHandleW(nullptr), nullptr);
     ApplyFont(m_sidebar);
 
-    // Bottom bar buttons  (left: library; right: Apply | Save & Rescan | Cancel)
+    // Bottom bar buttons  (left: library; right: Save | Close)
     Btn(hwnd, L"+ Add Library", ID_ADD_LIB, 8,           BOT_Y + 12, 110, 26);
-    Btn(hwnd, L"Apply",         ID_APPLY,   WIN_W - 316, BOT_Y + 12, 96,  26);
-    Btn(hwnd, L"Save & Rescan", ID_SAVE,    WIN_W - 212, BOT_Y + 12, 122, 26);
-    Btn(hwnd, L"Cancel",        ID_CANCEL,  WIN_W - 82,  BOT_Y + 12, 72,  26);
+    Btn(hwnd, L"Save",          ID_SAVE,    WIN_W - 170, BOT_Y + 12, 80,  26);
+    Btn(hwnd, L"Close",         ID_CANCEL,  WIN_W - 82,  BOT_Y + 12, 72,  26);
 
     RebuildSidebarItems();
 }

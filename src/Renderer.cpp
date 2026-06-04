@@ -2,6 +2,10 @@
 #include "Renderer.h"
 #include "Version.h"
 
+static D2D1_RECT_F D2DInsetRect(D2D1_RECT_F r, float dx, float dy) {
+    return D2D1::RectF(r.left + dx, r.top + dy, r.right - dx, r.bottom - dy);
+}
+
 // ── Color palette ─────────────────────────────────────────────────────────────
 static const D2D1_COLOR_F C_BG         = D2D1::ColorF(0x0D1117);
 static const D2D1_COLOR_F C_SIDEBAR    = D2D1::ColorF(0x13181E);
@@ -119,6 +123,7 @@ void Renderer::Resize(UINT w, UINT h) {
 
     m_searchRect = D2D1::RectF((float)w * 0.35f, 14.0f, (float)w * 0.65f, 50.0f);
     m_settingsBtnRect = D2D1::RectF((float)w - 50.0f, 16.0f, (float)w - 14.0f, 48.0f);
+    m_selectModeBtnRect = D2D1::RectF((float)w - 96.0f, 16.0f, (float)w - 58.0f, 48.0f);
     m_launchBtnRect = {}; // set during detail panel draw
 }
 
@@ -127,6 +132,7 @@ void Renderer::Resize(UINT w, UINT h) {
 void Renderer::Render(const std::vector<const Game*>& games, RenderState& state) {
     if (!m_rt) return;
     m_lastGameCount = (int)games.size();
+    m_animTime = (float)(GetTickCount64() % 100000) / 1000.0f;
     m_rt->BeginDraw();
 
     DrawBackground();
@@ -150,6 +156,14 @@ void Renderer::DrawTopBar(const RenderState& state) {
     float w = (float)m_width;
     D2D1_RECT_F bar = D2D1::RectF(0, 0, w, m_topbarH);
     m_rt->FillRectangle(bar, m_brushTopbar.Get());
+
+    float sweep = 0.5f + 0.5f * sinf(m_animTime * 0.75f);
+    float accentW = 120.0f + 80.0f * sweep;
+    D2D1_RECT_F accent = D2D1::RectF(m_sidebarW, m_topbarH - 2.0f,
+                                      std::min(w, m_sidebarW + accentW), m_topbarH);
+    m_brushAccent->SetColor(D2D1::ColorF(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.55f));
+    m_rt->FillRectangle(accent, m_brushAccent.Get());
+    m_brushAccent->SetColor(C_ACCENT);
 
     // App name
     D2D1_RECT_F titleRect = D2D1::RectF(m_sidebarW + 8, 0, m_sidebarW + 200, m_topbarH);
@@ -188,9 +202,12 @@ void Renderer::DrawTopBar(const RenderState& state) {
         D2D1_RECT_F pill = D2D1::RectF(
             m_settingsBtnRect.left - 166.0f, 18.0f,
             m_settingsBtnRect.left - 8.0f,  46.0f);
+        float pulse = 0.45f + 0.35f * (0.5f + 0.5f * sinf(m_animTime * 4.0f));
         m_rt->FillRoundedRectangle(D2D1::RoundedRect(pill, 6, 6), m_brushCard.Get());
+        m_brushAccent->SetColor(D2D1::ColorF(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, pulse));
         m_rt->DrawRoundedRectangle(D2D1::RoundedRect(pill, 6, 6),
-                                   m_brushSubtext.Get(), 1.0f);
+                                   m_brushAccent.Get(), 1.0f);
+        m_brushAccent->SetColor(C_ACCENT);
         D2D1_RECT_F pillText = D2D1::RectF(pill.left + 8, pill.top,
                                             pill.right - 8, pill.bottom);
         m_rt->DrawText(kScanText, (UINT32)wcslen(kScanText),
@@ -198,6 +215,28 @@ void Renderer::DrawTopBar(const RenderState& state) {
     }
 
     // Settings gear button (Segoe MDL2 Assets U+E713)
+    auto& sel = m_selectModeBtnRect;
+    if (state.selectionMode) {
+        m_rt->FillRoundedRectangle(D2D1::RoundedRect(sel, 6, 6), m_brushCardHover.Get());
+        m_rt->DrawRoundedRectangle(D2D1::RoundedRect(sel, 6, 6), m_brushAccent.Get(), 1.5f);
+    } else {
+        m_rt->FillRoundedRectangle(D2D1::RoundedRect(sel, 6, 6), m_brushCard.Get());
+    }
+    m_rt->DrawText(L"îœ¾", 1, m_fmtIcon.Get(),
+                   D2D1::RectF(sel.left, sel.top, sel.right, sel.bottom),
+                   state.selectionMode ? m_brushAccent.Get() : m_brushSubtext.Get());
+
+    if (state.selectionMode && !state.selectedGameIds.empty()) {
+        std::wstring count = std::to_wstring((int)state.selectedGameIds.size());
+        D2D1_RECT_F badge = D2D1::RectF(sel.right - 10.0f, sel.top - 4.0f,
+                                         sel.right + 10.0f, sel.top + 16.0f);
+        m_rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F((badge.left + badge.right) * 0.5f,
+                                                       (badge.top + badge.bottom) * 0.5f),
+                                        10.0f, 10.0f), m_brushAccent.Get());
+        m_rt->DrawText(count.c_str(), (UINT32)count.size(), m_fmtCardSub.Get(),
+                       badge, m_brushBg.Get());
+    }
+
     auto& sb = m_settingsBtnRect;
     m_rt->FillRoundedRectangle(D2D1::RoundedRect(sb, 6, 6), m_brushCard.Get());
     m_rt->DrawText(L"", 1, m_fmtIcon.Get(),
@@ -361,26 +400,43 @@ void Renderer::DrawGrid(const std::vector<const Game*>& games, RenderState& stat
         if (y + m_tileH + 22 < m_topbarH || y > (float)m_height) continue;
 
         D2D1_RECT_F rect = D2D1::RectF(x, y, x + m_tileW, y + m_tileH);
-        DrawCard(*games[i], rect, state.hoveredIndex == i, state.selectedIndex == i);
+        bool multiSelected = state.selectedGameIds.count(games[i]->id) > 0;
+        DrawCard(*games[i], rect, state.hoveredIndex == i, state.selectedIndex == i,
+                 state.selectionMode, multiSelected);
     }
 
     m_rt->PopAxisAlignedClip();
 }
 
 void Renderer::DrawCard(const Game& game, D2D1_RECT_F rect,
-                         bool hovered, bool selected) {
+                         bool hovered, bool selected,
+                         bool selectionMode, bool multiSelected) {
     float rnd = 8.0f;
+    if (hovered || selected || multiSelected) {
+        float lift = selected ? 2.0f : 4.0f;
+        rect.top -= lift;
+        rect.bottom -= lift;
+    }
 
     // Card shadow / glow
-    if (hovered || selected) {
-        D2D1_RECT_F shadow = D2D1::RectF(rect.left - 3, rect.top - 3,
-                                          rect.right + 3, rect.bottom + 3);
-        auto col = selected ? C_SELECTED : C_ACCENT;
-        col.a = 0.4f;
+    if (hovered || selected || multiSelected) {
+        D2D1_RECT_F shadow = D2D1::RectF(rect.left - 5, rect.top + 3,
+                                          rect.right + 5, rect.bottom + 8);
+        auto col = (selected || multiSelected) ? C_SELECTED : C_ACCENT;
+        col.a = (selected || multiSelected) ? 0.34f : 0.24f;
         m_brushCard->SetColor(col);
         m_rt->FillRoundedRectangle(D2D1::RoundedRect(shadow, rnd + 2, rnd + 2),
                                    m_brushCard.Get());
         m_brushCard->SetColor(C_CARD);
+    }
+
+    if (!hovered && !selected && !multiSelected) {
+        D2D1_RECT_F shadow = D2D1::RectF(rect.left + 2, rect.top + 4,
+                                          rect.right + 2, rect.bottom + 5);
+        m_brushOverlay->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.24f));
+        m_rt->FillRoundedRectangle(D2D1::RoundedRect(shadow, rnd, rnd),
+                                   m_brushOverlay.Get());
+        m_brushOverlay->SetColor(C_OVERLAY);
     }
 
     // Card background
@@ -435,10 +491,33 @@ void Renderer::DrawCard(const Game& game, D2D1_RECT_F rect,
                       D2D1::Point2F(rect.right - 14, rect.top + 14));
 
     // Selected border
-    if (selected) {
+    if (selectionMode) {
+        D2D1_RECT_F box = D2D1::RectF(rect.left + 10.0f, rect.top + 10.0f,
+                                      rect.left + 32.0f, rect.top + 32.0f);
+        m_brushOverlay->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.62f));
+        m_rt->FillRoundedRectangle(D2D1::RoundedRect(box, 4.0f, 4.0f), m_brushOverlay.Get());
+        m_brushOverlay->SetColor(C_OVERLAY);
+        m_rt->DrawRoundedRectangle(D2D1::RoundedRect(box, 4.0f, 4.0f),
+                                   multiSelected ? m_brushAccent.Get() : m_brushSubtext.Get(),
+                                   multiSelected ? 2.0f : 1.25f);
+        if (multiSelected) {
+            m_rt->DrawLine(D2D1::Point2F(box.left + 5.0f, box.top + 12.0f),
+                           D2D1::Point2F(box.left + 10.0f, box.bottom - 5.0f),
+                           m_brushAccent.Get(), 2.0f);
+            m_rt->DrawLine(D2D1::Point2F(box.left + 10.0f, box.bottom - 5.0f),
+                           D2D1::Point2F(box.right - 5.0f, box.top + 6.0f),
+                           m_brushAccent.Get(), 2.0f);
+        }
+    }
+
+    if (selected || multiSelected) {
         m_brushSelected->SetColor(C_SELECTED);
+        m_brushAccent->SetColor(D2D1::ColorF(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.22f));
+        m_rt->DrawRoundedRectangle(D2D1::RoundedRect(D2DInsetRect(rect, -2.0f, -2.0f), rnd + 2, rnd + 2),
+                                   m_brushAccent.Get(), 4.0f);
+        m_brushAccent->SetColor(C_ACCENT);
         m_rt->DrawRoundedRectangle(D2D1::RoundedRect(rect, rnd, rnd),
-                                   m_brushSelected.Get(), 2.0f);
+                                   m_brushSelected.Get(), selected ? 2.0f : 1.5f);
         m_brushSelected->SetColor(C_SELECTED);
     } else if (hovered) {
         m_brushAccent->SetColor(D2D1::ColorF(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.6f));
@@ -698,6 +777,11 @@ bool Renderer::HitTestLaunchBtn(float x, float y) const {
 bool Renderer::HitTestSettingsBtn(float x, float y) const {
     return x >= m_settingsBtnRect.left && x <= m_settingsBtnRect.right &&
            y >= m_settingsBtnRect.top  && y <= m_settingsBtnRect.bottom;
+}
+
+bool Renderer::HitTestSelectModeBtn(float x, float y) const {
+    return x >= m_selectModeBtnRect.left && x <= m_selectModeBtnRect.right &&
+           y >= m_selectModeBtnRect.top  && y <= m_selectModeBtnRect.bottom;
 }
 
 bool Renderer::HitTestEmptyStateBtn(float x, float y) const {

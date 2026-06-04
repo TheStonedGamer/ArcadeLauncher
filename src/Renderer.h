@@ -21,6 +21,7 @@ struct RenderState {
     int sidebarFocusIdx     = 0;
     bool selectionMode      = false;
     std::unordered_set<std::wstring> selectedGameIds;
+    float sidebarScroll     = 0.0f;
 
     // Which platform entries appear in the main sidebar (driven by enabled flags in config)
     bool showSteam   = true;
@@ -75,12 +76,15 @@ public:
     float ScrollForSelected(int idx, float currentScroll, float viewportH) const;
 
     int GetCols() const { return m_cols; }
+    float GridRowHeight() const { return m_tileH + m_tileGap + 22.0f; }
 
     struct SidebarEntry { const wchar_t* label; bool all; Platform p; };
     static std::vector<SidebarEntry> BuildSidebarEntries(const RenderState& s);
     static int GetSidebarEntryCount(const RenderState& s) {
         return (int)BuildSidebarEntries(s).size();
     }
+    float MaxSidebarScroll(const RenderState& s) const;
+    float SidebarWidth() const { return m_sidebarW; }
 
 private:
     void DrawBackground();

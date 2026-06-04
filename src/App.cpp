@@ -406,6 +406,8 @@ void App::OnSize(UINT w, UINT h) {
             m_config.Get().windowWidth  = (int)w;
             m_config.Get().windowHeight = (int)h;
         }
+        m_renderState.sidebarScroll =
+            std::min(m_renderState.sidebarScroll, m_renderer.MaxSidebarScroll(m_renderState));
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }
@@ -819,7 +821,7 @@ void App::OnKeyDown(WPARAM vk) {
             RECT rc; GetClientRect(m_hwnd, &rc);
             float viewH = (float)(rc.bottom - rc.top);
             int rows = ((int)m_visibleGames.size() + cols - 1) / cols;
-            float rowH = 260.0f + 16.0f + 22.0f;
+            float rowH = m_renderer.GridRowHeight();
             float maxScroll = std::max(0.0f, rows * rowH - viewH + 80.0f);
             m_renderState.targetScroll = std::min(
                 m_renderState.targetScroll + viewH - 80.0f, maxScroll);
@@ -835,12 +837,22 @@ void App::OnKeyDown(WPARAM vk) {
 
 void App::OnScroll(float delta) {
     if (m_renderState.detailOpen) return;
+
+    if (m_lastMouseX < m_renderer.SidebarWidth()) {
+        float maxSidebar = m_renderer.MaxSidebarScroll(m_renderState);
+        m_renderState.sidebarScroll =
+            std::clamp(m_renderState.sidebarScroll - delta * 0.25f, 0.0f, maxSidebar);
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
     m_renderState.targetScroll -= delta * 0.5f;
     m_renderState.targetScroll = std::max(0.0f, m_renderState.targetScroll);
     // Max scroll: rough upper bound
     RECT rc; GetClientRect(m_hwnd, &rc);
-    int rows = ((int)m_visibleGames.size() + 4) / 5;
-    float maxScroll = std::max(0.0f, rows * (260.0f + 16.0f + 22.0f) - (float)(rc.bottom - rc.top) + 80.0f);
+    int cols = std::max(1, m_renderer.GetCols());
+    int rows = ((int)m_visibleGames.size() + cols - 1) / cols;
+    float maxScroll = std::max(0.0f, rows * m_renderer.GridRowHeight() - (float)(rc.bottom - rc.top) + 80.0f);
     m_renderState.targetScroll = std::min(m_renderState.targetScroll, maxScroll);
 }
 
@@ -1194,6 +1206,8 @@ void App::UpdateSidebarFlags() {
     int count = Renderer::GetSidebarEntryCount(m_renderState);
     if (m_renderState.sidebarFocusIdx >= count)
         m_renderState.sidebarFocusIdx = count - 1;
+    m_renderState.sidebarScroll =
+        std::min(m_renderState.sidebarScroll, m_renderer.MaxSidebarScroll(m_renderState));
 }
 
 void App::ApplySidebarFilter(int idx) {

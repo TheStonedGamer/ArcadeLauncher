@@ -117,11 +117,22 @@ void Renderer::Resize(UINT w, UINT h) {
     m_width = w; m_height = h;
     if (m_rt) m_rt->Resize(D2D1::SizeU(w, h));
 
+    m_sidebarW = std::clamp((float)w * 0.22f, 176.0f, 220.0f);
+    m_tileW = std::clamp(((float)w - m_sidebarW - 64.0f) / 4.0f, 150.0f, 190.0f);
+    m_tileH = m_tileW * 1.44f;
+
     // Recompute grid columns
     float gridW = (float)w - m_sidebarW;
     m_cols = std::max(1, (int)((gridW + m_tileGap) / (m_tileW + m_tileGap)));
 
-    m_searchRect = D2D1::RectF((float)w * 0.35f, 14.0f, (float)w * 0.65f, 50.0f);
+    float actionsLeft = (float)w - 102.0f;
+    float searchLeft = std::max(m_sidebarW + 168.0f, (float)w * 0.34f);
+    float searchRight = std::min(actionsLeft - 12.0f, (float)w * 0.66f);
+    if (searchRight - searchLeft < 180.0f) {
+        searchLeft = m_sidebarW + 12.0f;
+        searchRight = std::max(searchLeft + 160.0f, actionsLeft - 12.0f);
+    }
+    m_searchRect = D2D1::RectF(searchLeft, 14.0f, searchRight, 50.0f);
     m_settingsBtnRect = D2D1::RectF((float)w - 50.0f, 16.0f, (float)w - 14.0f, 48.0f);
     m_selectModeBtnRect = D2D1::RectF((float)w - 96.0f, 16.0f, (float)w - 58.0f, 48.0f);
     m_launchBtnRect = {}; // set during detail panel draw
@@ -200,8 +211,8 @@ void Renderer::DrawTopBar(const RenderState& state) {
     if (state.metaScanning) {
         static const wchar_t kScanText[] = L"Fetching metadata…";
         D2D1_RECT_F pill = D2D1::RectF(
-            m_settingsBtnRect.left - 166.0f, 18.0f,
-            m_settingsBtnRect.left - 8.0f,  46.0f);
+            m_selectModeBtnRect.left - 166.0f, 18.0f,
+            m_selectModeBtnRect.left - 8.0f,  46.0f);
         float pulse = 0.45f + 0.35f * (0.5f + 0.5f * sinf(m_animTime * 4.0f));
         m_rt->FillRoundedRectangle(D2D1::RoundedRect(pill, 6, 6), m_brushCard.Get());
         m_brushAccent->SetColor(D2D1::ColorF(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, pulse));
@@ -276,7 +287,16 @@ void Renderer::DrawSidebar(const RenderState& state) {
     auto entries = BuildSidebarEntries(state);
 
     bool sidebarKbFocus = (state.focusArea == FocusArea::Sidebar);
-    float y = m_topbarH + 12.0f;
+    float listTop = m_topbarH + 12.0f;
+    float listBottom = std::max(listTop, (float)m_height - 86.0f);
+    float contentH = (float)entries.size() * 42.0f;
+    float maxScroll = std::max(0.0f, contentH - (listBottom - listTop));
+    float scroll = std::clamp(state.sidebarScroll, 0.0f, maxScroll);
+
+    m_rt->PushAxisAlignedClip(D2D1::RectF(0, listTop, m_sidebarW, listBottom),
+                              D2D1_ANTIALIAS_MODE_ALIASED);
+
+    float y = listTop - scroll;
     int entryIdx = 0;
     for (auto& e : entries) {
         bool active = e.all ? state.filterAll :
@@ -329,6 +349,23 @@ void Renderer::DrawSidebar(const RenderState& state) {
                        (active || kbFocus) ? m_brushText.Get() : m_brushSubtext.Get());
         y += 42.0f;
         ++entryIdx;
+    }
+    m_rt->PopAxisAlignedClip();
+
+    if (maxScroll > 0.0f) {
+        float trackTop = listTop + 4.0f;
+        float trackBottom = listBottom - 4.0f;
+        float trackH = trackBottom - trackTop;
+        float thumbH = std::max(28.0f, trackH * ((listBottom - listTop) / contentH));
+        float thumbY = trackTop + (trackH - thumbH) * (scroll / maxScroll);
+        D2D1_RECT_F track = D2D1::RectF(m_sidebarW - 7.0f, trackTop, m_sidebarW - 3.0f, trackBottom);
+        D2D1_RECT_F thumb = D2D1::RectF(m_sidebarW - 8.0f, thumbY, m_sidebarW - 2.0f, thumbY + thumbH);
+        m_brushOverlay->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.28f));
+        m_rt->FillRoundedRectangle(D2D1::RoundedRect(track, 2.0f, 2.0f), m_brushOverlay.Get());
+        m_brushOverlay->SetColor(C_OVERLAY);
+        m_brushAccent->SetColor(D2D1::ColorF(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.55f));
+        m_rt->FillRoundedRectangle(D2D1::RoundedRect(thumb, 3.0f, 3.0f), m_brushAccent.Get());
+        m_brushAccent->SetColor(C_ACCENT);
     }
 
     // Version number
@@ -752,7 +789,11 @@ bool Renderer::HitTestSidebar(float x, float y, const RenderState& state,
                                Platform& outPlatform, bool& outAll) const {
     if (x >= m_sidebarW) return false;
     auto entries = BuildSidebarEntries(state);
-    float ey = m_topbarH + 12.0f;
+    float listTop = m_topbarH + 12.0f;
+    float listBottom = std::max(listTop, (float)m_height - 86.0f);
+    if (y < listTop || y > listBottom) return false;
+
+    float ey = listTop - std::clamp(state.sidebarScroll, 0.0f, MaxSidebarScroll(state));
     for (auto& e : entries) {
         if (y >= ey && y <= ey + 38.0f) {
             outAll      = e.all;
@@ -762,6 +803,13 @@ bool Renderer::HitTestSidebar(float x, float y, const RenderState& state,
         ey += 42.0f;
     }
     return false;
+}
+
+float Renderer::MaxSidebarScroll(const RenderState& s) const {
+    float listTop = m_topbarH + 12.0f;
+    float listBottom = std::max(listTop, (float)m_height - 86.0f);
+    float contentH = (float)BuildSidebarEntries(s).size() * 42.0f;
+    return std::max(0.0f, contentH - (listBottom - listTop));
 }
 
 bool Renderer::HitTestSearch(float x, float y) const {

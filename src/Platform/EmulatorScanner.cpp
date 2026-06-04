@@ -76,19 +76,74 @@ static std::wstring ParentPath(const std::wstring& path) {
     return slash == std::wstring::npos ? L"" : path.substr(0, slash);
 }
 
-static std::wstring PickGodTitle(const std::wstring& godDir, const std::wstring& rootDir) {
-    std::wstring parent = ParentPath(godDir);
-    std::wstring title = FileNameOnly(parent);
+static std::wstring QuoteWindowsArg(const std::wstring& arg) {
+    std::wstring out = L"\"";
+    size_t slashCount = 0;
 
-    // Content\0000000000000000\<TitleID>\00007000 is common; the TitleID is
-    // not user-friendly, so prefer the next folder up when it looks better.
-    if (IsHexLike(title) || title == L"0000000000000000") {
-        std::wstring grand = FileNameOnly(ParentPath(parent));
-        if (!grand.empty() && grand != L"Content" && grand != L"0000000000000000")
-            title = grand;
+    for (wchar_t c : arg) {
+        if (c == L'\\') {
+            ++slashCount;
+            continue;
+        }
+
+        if (c == L'"') {
+            out.append(slashCount * 2 + 1, L'\\');
+            out.push_back(c);
+            slashCount = 0;
+            continue;
+        }
+
+        out.append(slashCount, L'\\');
+        slashCount = 0;
+        out.push_back(c);
     }
 
-    if (title.empty() || title == L"00007000" || title == L"0007000")
+    out.append(slashCount * 2, L'\\');
+    out.push_back(L'"');
+    return out;
+}
+
+static std::wstring BuildRomArgs(const std::wstring& emulatorArgs, const std::wstring& romPath) {
+    std::wstring args = emulatorArgs;
+    std::wstring quotedRom = QuoteWindowsArg(romPath);
+    size_t ph = args.find(L"{rom}");
+    if (ph != std::wstring::npos)
+        args.replace(ph, 5, quotedRom);
+    else
+        args += L" " + quotedRom;
+    return args;
+}
+
+static bool IsGenericXbox360ContentFolder(std::wstring name) {
+    for (auto& c : name) c = towlower(c);
+    return name.empty()
+        || name == L"content"
+        || name == L"0000000000000000"
+        || name == L"00007000"
+        || name == L"0007000"
+        || IsHexLike(name);
+}
+
+static std::wstring PickGodTitle(const std::wstring& godDir, const std::wstring& rootDir) {
+    std::wstring cursor = ParentPath(godDir);
+    std::wstring title;
+
+    // GOD paths commonly look like <Game>\<TitleID>\00007000, and some
+    // collections accidentally repeat the TitleID folder. Walk upward until
+    // we find the user-facing folder name.
+    while (!cursor.empty()) {
+        std::wstring candidate = FileNameOnly(cursor);
+        if (!IsGenericXbox360ContentFolder(candidate)) {
+            title = candidate;
+            break;
+        }
+
+        std::wstring parent = ParentPath(cursor);
+        if (parent == cursor) break;
+        cursor = parent;
+    }
+
+    if (title.empty())
         title = FileNameOnly(rootDir);
     return StripRomTags(title);
 }
@@ -120,6 +175,22 @@ static bool LooksLikeGodPackageFile(const WIN32_FIND_DATAW& fd) {
     return true;
 }
 
+static bool DirectoryExists(const std::wstring& path) {
+    DWORD attr = GetFileAttributesW(path.c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static bool HasGodDataFolder(const std::wstring& godDir, const std::wstring& packageName) {
+    return DirectoryExists(godDir + L"\\" + packageName + L".data");
+}
+
+static int GodPackageScore(const std::wstring& godDir, const WIN32_FIND_DATAW& fd) {
+    int score = 0;
+    if (HasGodDataFolder(godDir, fd.cFileName)) score += 100;
+    if (IsHexLike(fd.cFileName)) score += 10;
+    return score;
+}
+
 static void AddXbox360GodPackages(const EmulatorRomConfig& cfg,
                                   const std::wstring& rootDir,
                                   const std::wstring& scanDir,
@@ -141,18 +212,25 @@ static void AddXbox360GodPackages(const EmulatorRomConfig& cfg,
                 WIN32_FIND_DATAW pkgFd;
                 HANDLE pkg = FindFirstFileW((path + L"\\*").c_str(), &pkgFd);
                 if (pkg != INVALID_HANDLE_VALUE) {
+                    bool foundPackage = false;
+                    WIN32_FIND_DATAW bestPkgFd{};
+                    int bestScore = -1;
+
                     do {
                         if (!LooksLikeGodPackageFile(pkgFd)) continue;
+                        int score = GodPackageScore(path, pkgFd);
+                        if (!foundPackage || score > bestScore) {
+                            foundPackage = true;
+                            bestPkgFd = pkgFd;
+                            bestScore = score;
+                        }
+                    } while (FindNextFileW(pkg, &pkgFd));
+                    FindClose(pkg);
 
-                        std::wstring romPath = path + L"\\" + pkgFd.cFileName;
+                    if (foundPackage) {
+                        std::wstring romPath = path + L"\\" + bestPkgFd.cFileName;
                         std::wstring title = PickGodTitle(path, rootDir);
-
-                        std::wstring args = cfg.emulatorArgs;
-                        size_t ph = args.find(L"{rom}");
-                        if (ph != std::wstring::npos)
-                            args.replace(ph, 5, L"\"" + romPath + L"\"");
-                        else
-                            args += L" \"" + romPath + L"\"";
+                        std::wstring args = BuildRomArgs(cfg.emulatorArgs, romPath);
 
                         Game g;
                         g.id           = PlatformName(cfg.platform) + L"_god_" + StablePathId(romPath);
@@ -172,8 +250,7 @@ static void AddXbox360GodPackages(const EmulatorRomConfig& cfg,
                         }
 
                         games.push_back(std::move(g));
-                    } while (FindNextFileW(pkg, &pkgFd));
-                    FindClose(pkg);
+                    }
                 }
             } else {
                 AddXbox360GodPackages(cfg, rootDir, path, games);
@@ -218,14 +295,7 @@ std::vector<Game> EmulatorScanner::Scan() {
             std::wstring title = StripRomTags(fname.substr(0, dot));
 
             std::wstring romPath = dir + L"\\" + fname;
-
-            // Build launch args: replace {rom} placeholder or append
-            std::wstring args = m_cfg.emulatorArgs;
-            size_t ph = args.find(L"{rom}");
-            if (ph != std::wstring::npos)
-                args.replace(ph, 5, L"\"" + romPath + L"\"");
-            else
-                args += L" \"" + romPath + L"\"";
+            std::wstring args = BuildRomArgs(m_cfg.emulatorArgs, romPath);
 
             Game g;
             g.id           = PlatformName(m_cfg.platform) + L"_" + fname;

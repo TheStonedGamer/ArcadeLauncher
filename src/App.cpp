@@ -5,8 +5,356 @@
 #include "Platform/GogScanner.h"
 #include "Platform/EmulatorScanner.h"
 #include "IgdbSync.h"
+#include <commctrl.h>
+
+#pragma comment(lib, "comctl32.lib")
 
 static const wchar_t* WNDCLASS_NAME = L"ArcadeLauncherWnd";
+static const wchar_t* COPY_PROGRESS_WNDCLASS = L"ArcadeLauncherCopyProgressWnd";
+
+class CopyProgressDialog {
+public:
+    bool Create(HWND owner, const std::wstring& title) {
+        INITCOMMONCONTROLSEX icc{ sizeof(icc), ICC_PROGRESS_CLASS };
+        InitCommonControlsEx(&icc);
+
+        static bool registered = false;
+        if (!registered) {
+            WNDCLASSEXW wc{};
+            wc.cbSize = sizeof(wc);
+            wc.lpfnWndProc = DefWindowProcW;
+            wc.hInstance = GetModuleHandleW(nullptr);
+            wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+            wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+            wc.lpszClassName = COPY_PROGRESS_WNDCLASS;
+            RegisterClassExW(&wc);
+            registered = true;
+        }
+
+        RECT ownerRc{};
+        GetWindowRect(owner, &ownerRc);
+        int w = 420;
+        int h = 138;
+        int x = ownerRc.left + ((ownerRc.right - ownerRc.left) - w) / 2;
+        int y = ownerRc.top + ((ownerRc.bottom - ownerRc.top) - h) / 2;
+
+        m_hwnd = CreateWindowExW(WS_EX_DLGMODALFRAME, COPY_PROGRESS_WNDCLASS,
+            L"Preparing Xbox 360 GOD game",
+            WS_CAPTION | WS_POPUP,
+            x, y, w, h, owner, nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (!m_hwnd) return false;
+
+        m_title = CreateWindowExW(0, WC_STATICW, title.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            18, 18, w - 36, 22, m_hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+        m_status = CreateWindowExW(0, WC_STATICW, L"Copying to local temp cache...",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            18, 45, w - 36, 20, m_hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+        m_progress = CreateWindowExW(0, PROGRESS_CLASSW, nullptr,
+            WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
+            18, 74, w - 36, 22, m_hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+
+        SendMessageW(m_progress, PBM_SETRANGE32, 0, 1000);
+        SendMessageW(m_progress, PBM_SETPOS, 0, 0);
+
+        EnableWindow(owner, FALSE);
+        ShowWindow(m_hwnd, SW_SHOW);
+        UpdateWindow(m_hwnd);
+        Pump();
+        m_owner = owner;
+        return true;
+    }
+
+    void SetProgress(uint64_t copied, uint64_t total, double mbps) {
+        if (!m_hwnd) return;
+        int pos = total > 0 ? (int)((copied * 1000) / total) : 0;
+        if (pos > 1000) pos = 1000;
+        SendMessageW(m_progress, PBM_SETPOS, pos, 0);
+
+        std::wstring text = L"Copying to local temp cache... "
+            + std::to_wstring((pos + 5) / 10) + L"%";
+        if (mbps > 0.0) {
+            wchar_t speed[64]{};
+            swprintf_s(speed, L"  %.1f MB/s", mbps);
+            text += speed;
+        }
+        SetWindowTextW(m_status, text.c_str());
+        Pump();
+    }
+
+    void Close() {
+        if (m_owner) {
+            EnableWindow(m_owner, TRUE);
+            SetForegroundWindow(m_owner);
+        }
+        if (m_hwnd) DestroyWindow(m_hwnd);
+        m_hwnd = nullptr;
+        m_owner = nullptr;
+    }
+
+private:
+    void Pump() {
+        MSG msg{};
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
+    HWND m_owner = nullptr;
+    HWND m_hwnd = nullptr;
+    HWND m_title = nullptr;
+    HWND m_status = nullptr;
+    HWND m_progress = nullptr;
+};
+
+struct CopyProgressState {
+    CopyProgressDialog* dialog = nullptr;
+    uint64_t totalBytes = 0;
+    uint64_t completedBeforeFile = 0;
+    uint64_t copiedBytes = 0;
+    std::chrono::steady_clock::time_point startedAt = std::chrono::steady_clock::now();
+};
+
+static DWORD CALLBACK CopyProgressRoutine(LARGE_INTEGER totalFileSize,
+                                          LARGE_INTEGER totalBytesTransferred,
+                                          LARGE_INTEGER,
+                                          LARGE_INTEGER,
+                                          DWORD,
+                                          DWORD,
+                                          HANDLE,
+                                          HANDLE,
+                                          LPVOID data) {
+    auto* state = static_cast<CopyProgressState*>(data);
+    if (!state || !state->dialog) return PROGRESS_CONTINUE;
+
+    uint64_t current = state->completedBeforeFile + (uint64_t)totalBytesTransferred.QuadPart;
+    state->copiedBytes = current;
+    double seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - state->startedAt).count();
+    double mbps = seconds > 0.0 ? ((double)current / (1024.0 * 1024.0)) / seconds : 0.0;
+    state->dialog->SetProgress(current, state->totalBytes, mbps);
+    return PROGRESS_CONTINUE;
+}
+
+static std::wstring QuoteWindowsArgLocal(const std::wstring& arg) {
+    std::wstring out = L"\"";
+    size_t slashCount = 0;
+
+    for (wchar_t c : arg) {
+        if (c == L'\\') {
+            ++slashCount;
+            continue;
+        }
+
+        if (c == L'"') {
+            out.append(slashCount * 2 + 1, L'\\');
+            out.push_back(c);
+            slashCount = 0;
+            continue;
+        }
+
+        out.append(slashCount, L'\\');
+        slashCount = 0;
+        out.push_back(c);
+    }
+
+    out.append(slashCount * 2, L'\\');
+    out.push_back(L'"');
+    return out;
+}
+
+static std::wstring GetLocalAppDataPath() {
+    wchar_t path[MAX_PATH]{};
+    SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, path);
+    return std::wstring(path) + L"\\ArcadeLauncher";
+}
+
+static std::wstring StablePathIdLocal(const std::wstring& path) {
+    uint64_t hash = 1469598103934665603ull;
+    for (wchar_t c : path) {
+        hash ^= (uint64_t)towlower(c);
+        hash *= 1099511628211ull;
+    }
+
+    wchar_t buf[17]{};
+    swprintf_s(buf, L"%016llx", (unsigned long long)hash);
+    return buf;
+}
+
+static bool IsRemoteFilePath(const std::wstring& path) {
+    if (path.rfind(L"\\\\", 0) == 0) return true;
+    if (path.size() >= 3 && path[1] == L':' && (path[2] == L'\\' || path[2] == L'/')) {
+        wchar_t root[] = { path[0], L':', L'\\', L'\0' };
+        return GetDriveTypeW(root) == DRIVE_REMOTE;
+    }
+    return false;
+}
+
+static std::wstring ParentPathLocal(const std::wstring& path) {
+    size_t slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? L"" : path.substr(0, slash);
+}
+
+static std::wstring FileNameOnlyLocal(const std::wstring& path) {
+    size_t slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? path : path.substr(slash + 1);
+}
+
+static bool IsXbox360GodPackagePath(const std::wstring& romPath) {
+    if (romPath.empty() || romPath.find(L'.') != std::wstring::npos) return false;
+
+    std::wstring godDir = ParentPathLocal(romPath);
+    std::wstring contentDir = FileNameOnlyLocal(godDir);
+    for (auto& c : contentDir) c = towlower(c);
+    if (contentDir != L"00007000" && contentDir != L"0007000") return false;
+
+    DWORD attr = GetFileAttributesW((romPath + L".data").c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static void ReplaceAllLocal(std::wstring& s, const std::wstring& from, const std::wstring& to) {
+    if (from.empty()) return;
+    size_t pos = 0;
+    while ((pos = s.find(from, pos)) != std::wstring::npos) {
+        s.replace(pos, from.size(), to);
+        pos += to.size();
+    }
+}
+
+static std::wstring RebuildArgsForCachedRom(const Game& game, const std::wstring& cachedRomPath) {
+    std::wstring args = game.arguments;
+    std::wstring oldQuoted = QuoteWindowsArgLocal(game.romPath);
+    std::wstring newQuoted = QuoteWindowsArgLocal(cachedRomPath);
+
+    ReplaceAllLocal(args, oldQuoted, newQuoted);
+    ReplaceAllLocal(args, game.romPath, cachedRomPath);
+    if (args == game.arguments)
+        args = newQuoted;
+    return args;
+}
+
+static uint64_t FileSizeOrZero(const std::wstring& path) {
+    try {
+        return fs::exists(path) && fs::is_regular_file(path) ? (uint64_t)fs::file_size(path) : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+static uint64_t DirectorySizeOrZero(const std::wstring& path) {
+    uint64_t total = 0;
+    try {
+        if (!fs::exists(path)) return 0;
+        for (const auto& entry : fs::recursive_directory_iterator(path)) {
+            if (entry.is_regular_file())
+                total += (uint64_t)entry.file_size();
+        }
+    } catch (...) {
+    }
+    return total;
+}
+
+static bool CopyFileWithProgress(const std::wstring& src,
+                                 const std::wstring& dst,
+                                 CopyProgressState& progress) {
+    fs::create_directories(ParentPathLocal(dst));
+
+    BOOL cancel = FALSE;
+    if (!CopyFileExW(src.c_str(), dst.c_str(), CopyProgressRoutine,
+                     &progress, &cancel, 0)) {
+        return false;
+    }
+
+    progress.completedBeforeFile += FileSizeOrZero(src);
+    double seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - progress.startedAt).count();
+    double mbps = seconds > 0.0
+        ? ((double)progress.completedBeforeFile / (1024.0 * 1024.0)) / seconds
+        : 0.0;
+    progress.dialog->SetProgress(progress.completedBeforeFile, progress.totalBytes, mbps);
+    return true;
+}
+
+static bool CopyDirectoryWithProgress(const std::wstring& srcDir,
+                                      const std::wstring& dstDir,
+                                      CopyProgressState& progress) {
+    try {
+        fs::create_directories(dstDir);
+        for (const auto& entry : fs::recursive_directory_iterator(srcDir)) {
+            const fs::path rel = fs::relative(entry.path(), srcDir);
+            const fs::path dst = fs::path(dstDir) / rel;
+
+            if (entry.is_directory()) {
+                fs::create_directories(dst);
+                continue;
+            }
+
+            if (!entry.is_regular_file()) continue;
+            if (!CopyFileWithProgress(entry.path().wstring(), dst.wstring(), progress))
+                return false;
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+static bool EnsureXbox360GodLocalCache(const Game& game,
+                                       std::wstring& cachedRomPath,
+                                       std::wstring& cacheRootPath,
+                                       HWND owner) {
+    if (game.platform != Platform::Xbox360) return false;
+    if (!IsRemoteFilePath(game.romPath)) return false;
+    if (!IsXbox360GodPackagePath(game.romPath)) return false;
+
+    try {
+        std::wstring srcGodDir = ParentPathLocal(game.romPath);
+        std::wstring packageName = FileNameOnlyLocal(game.romPath);
+        std::wstring srcDataDir = game.romPath + L".data";
+        std::wstring cacheRoot = GetLocalAppDataPath() + L"\\XeniaGodCache\\" + StablePathIdLocal(srcGodDir);
+        std::wstring dstGodDir = cacheRoot + L"\\00007000";
+        std::wstring dstPackage = dstGodDir + L"\\" + packageName;
+        std::wstring dstDataDir = dstPackage + L".data";
+
+        CopyProgressDialog dialog;
+        std::wstring title = L"Copying " + game.title;
+        dialog.Create(owner, title);
+
+        CopyProgressState progress{};
+        progress.dialog = &dialog;
+        progress.totalBytes = FileSizeOrZero(game.romPath) + DirectorySizeOrZero(srcDataDir);
+
+        fs::remove_all(cacheRoot);
+        fs::create_directories(dstGodDir);
+        bool copied = CopyFileWithProgress(game.romPath, dstPackage, progress)
+            && CopyDirectoryWithProgress(srcDataDir, dstDataDir, progress);
+        dialog.Close();
+        if (!copied) {
+            fs::remove_all(cacheRoot);
+            return false;
+        }
+
+        cachedRomPath = dstPackage;
+        cacheRootPath = cacheRoot;
+        return true;
+    } catch (...) {
+        cachedRomPath.clear();
+        cacheRootPath.clear();
+        return false;
+    }
+}
+
+static void CleanupXbox360GodLocalCache(const std::wstring& cacheRootPath) {
+    if (cacheRootPath.empty()) return;
+
+    try {
+        std::wstring expectedRoot = GetLocalAppDataPath() + L"\\XeniaGodCache\\";
+        if (cacheRootPath.rfind(expectedRoot, 0) != 0) return;
+        fs::remove_all(cacheRootPath);
+    } catch (...) {
+    }
+}
 
 App::App() {}
 App::~App() {}
@@ -1119,8 +1467,14 @@ void App::LaunchGame(const Game& game) {
     } else if (!game.emulatorPath.empty()) {
         // Emulator launch
         std::wstring args = game.arguments;
+        std::wstring cachedRomPath;
+        std::wstring godCacheRoot;
+        if (EnsureXbox360GodLocalCache(game, cachedRomPath, godCacheRoot, m_hwnd))
+            args = RebuildArgsForCachedRom(game, cachedRomPath);
+
         ok = m_monitor.Launch(game.emulatorPath, args, {},
-            [this, id = game.id](uint64_t elapsed) {
+            [this, id = game.id, godCacheRoot](uint64_t elapsed) {
+                CleanupXbox360GodLocalCache(godCacheRoot);
                 if (auto* g = m_library.FindById(id)) {
                     g->playtimeSeconds += elapsed;
                     g->lastPlayed = (int64_t)std::chrono::duration_cast<

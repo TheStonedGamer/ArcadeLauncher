@@ -6,11 +6,38 @@ ProcessMonitor::~ProcessMonitor() {
     KillCurrent();
 }
 
+static std::wstring QuoteWindowsArg(const std::wstring& arg) {
+    std::wstring out = L"\"";
+    size_t slashCount = 0;
+
+    for (wchar_t c : arg) {
+        if (c == L'\\') {
+            ++slashCount;
+            continue;
+        }
+
+        if (c == L'"') {
+            out.append(slashCount * 2 + 1, L'\\');
+            out.push_back(c);
+            slashCount = 0;
+            continue;
+        }
+
+        out.append(slashCount, L'\\');
+        slashCount = 0;
+        out.push_back(c);
+    }
+
+    out.append(slashCount * 2, L'\\');
+    out.push_back(L'"');
+    return out;
+}
+
 bool ProcessMonitor::Launch(const std::wstring& exe, const std::wstring& args,
                              const std::wstring& workDir, DoneCallback cb) {
     if (m_running.load()) return false;
 
-    std::wstring cmdLine = L"\"" + exe + L"\"";
+    std::wstring cmdLine = QuoteWindowsArg(exe);
     if (!args.empty()) cmdLine += L" " + args;
 
     STARTUPINFOW si{};

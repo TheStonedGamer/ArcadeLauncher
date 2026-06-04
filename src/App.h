@@ -34,6 +34,7 @@ private:
     void OnTimer(UINT timerId);
     void OnMouseMove(float x, float y);
     void OnLButtonDown(float x, float y);
+    void OnLButtonDblClk(float x, float y);
     void OnLButtonUp(float x, float y);
     void OnRButtonDown(float x, float y);
     void OnChar(wchar_t ch);

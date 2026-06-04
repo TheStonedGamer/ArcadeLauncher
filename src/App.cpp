@@ -16,6 +16,7 @@ bool App::Initialize(HINSTANCE hInstance, bool startInTray) {
 
     WNDCLASSEXW wc{};
     wc.cbSize        = sizeof(wc);
+    wc.style         = CS_DBLCLKS;
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hInstance;
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
@@ -238,6 +239,10 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         OnLButtonDown((float)GET_X_LPARAM(lp), (float)GET_Y_LPARAM(lp));
         return 0;
 
+    case WM_LBUTTONDBLCLK:
+        OnLButtonDblClk((float)GET_X_LPARAM(lp), (float)GET_Y_LPARAM(lp));
+        return 0;
+
     case WM_LBUTTONUP:
         OnLButtonUp((float)GET_X_LPARAM(lp), (float)GET_Y_LPARAM(lp));
         return 0;
@@ -401,6 +406,8 @@ void App::OnSize(UINT w, UINT h) {
             m_config.Get().windowWidth  = (int)w;
             m_config.Get().windowHeight = (int)h;
         }
+        m_renderState.sidebarScroll =
+            std::min(m_renderState.sidebarScroll, m_renderer.MaxSidebarScroll(m_renderState));
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }
@@ -471,6 +478,15 @@ void App::OnLButtonDown(float x, float y) {
         return;
     }
 
+    if (m_renderer.HitTestSelectModeBtn(x, y)) {
+        m_renderState.selectionMode = !m_renderState.selectionMode;
+        if (!m_renderState.selectionMode)
+            m_renderState.selectedGameIds.clear();
+        m_renderState.focusArea = FocusArea::Grid;
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
     if (m_renderer.HitTestSettingsBtn(x, y)) {
         OpenSettings();
         return;
@@ -511,16 +527,36 @@ void App::OnLButtonDown(float x, float y) {
     int idx = m_renderer.HitTestGrid(x, y, m_renderState, m_visibleGames.size());
     if (idx >= 0) {
         m_renderState.focusArea = FocusArea::Grid;
-        if (m_renderState.selectedIndex == idx) {
-            m_renderState.detailOpen = true;
-            m_renderState.detailIndex = idx;
+        if (m_renderState.selectionMode) {
+            const std::wstring& id = m_visibleGames[idx]->id;
+            auto it = m_renderState.selectedGameIds.find(id);
+            if (it != m_renderState.selectedGameIds.end())
+                m_renderState.selectedGameIds.erase(it);
+            else
+                m_renderState.selectedGameIds.insert(id);
+            m_renderState.selectedIndex = idx;
         } else {
             m_renderState.selectedIndex = idx;
+            m_renderState.detailOpen = true;
+            m_renderState.detailIndex = idx;
         }
         InvalidateRect(m_hwnd, nullptr, FALSE);
     } else {
         // Click on background — return focus to grid
         m_renderState.focusArea = FocusArea::Grid;
+    }
+}
+
+void App::OnLButtonDblClk(float x, float y) {
+    if (m_renderState.selectionMode || m_renderState.detailOpen)
+        return;
+
+    int idx = m_renderer.HitTestGrid(x, y, m_renderState, m_visibleGames.size());
+    if (idx >= 0 && idx < (int)m_visibleGames.size()) {
+        m_renderState.focusArea = FocusArea::Grid;
+        m_renderState.selectedIndex = idx;
+        LaunchGame(*m_visibleGames[idx]);
+        InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }
 
@@ -706,7 +742,10 @@ void App::OnKeyDown(WPARAM vk) {
         int cols = m_renderer.GetCols();
         switch (vk) {
         case VK_ESCAPE:
-            if (!m_renderState.searchQuery.empty()) {
+            if (m_renderState.selectionMode) {
+                m_renderState.selectionMode = false;
+                m_renderState.selectedGameIds.clear();
+            } else if (!m_renderState.searchQuery.empty()) {
                 m_renderState.searchQuery.clear();
                 ApplyFilter();
             } else if (m_fullscreen) {
@@ -720,11 +759,28 @@ void App::OnKeyDown(WPARAM vk) {
             }
             break;
         case VK_RETURN:
-            if (sel >= 0 && sel < n) {
+            if (m_renderState.selectionMode && sel >= 0 && sel < n) {
+                const std::wstring& id = m_visibleGames[sel]->id;
+                auto it = m_renderState.selectedGameIds.find(id);
+                if (it != m_renderState.selectedGameIds.end())
+                    m_renderState.selectedGameIds.erase(it);
+                else
+                    m_renderState.selectedGameIds.insert(id);
+            } else if (sel >= 0 && sel < n) {
                 m_renderState.detailOpen  = true;
                 m_renderState.detailIndex = sel;
             } else if (n > 0) {
                 sel = 0;
+            }
+            break;
+        case VK_SPACE:
+            if (m_renderState.selectionMode && sel >= 0 && sel < n) {
+                const std::wstring& id = m_visibleGames[sel]->id;
+                auto it = m_renderState.selectedGameIds.find(id);
+                if (it != m_renderState.selectedGameIds.end())
+                    m_renderState.selectedGameIds.erase(it);
+                else
+                    m_renderState.selectedGameIds.insert(id);
             }
             break;
         case VK_LEFT:
@@ -765,7 +821,7 @@ void App::OnKeyDown(WPARAM vk) {
             RECT rc; GetClientRect(m_hwnd, &rc);
             float viewH = (float)(rc.bottom - rc.top);
             int rows = ((int)m_visibleGames.size() + cols - 1) / cols;
-            float rowH = 260.0f + 16.0f + 22.0f;
+            float rowH = m_renderer.GridRowHeight();
             float maxScroll = std::max(0.0f, rows * rowH - viewH + 80.0f);
             m_renderState.targetScroll = std::min(
                 m_renderState.targetScroll + viewH - 80.0f, maxScroll);
@@ -781,12 +837,22 @@ void App::OnKeyDown(WPARAM vk) {
 
 void App::OnScroll(float delta) {
     if (m_renderState.detailOpen) return;
+
+    if (m_lastMouseX < m_renderer.SidebarWidth()) {
+        float maxSidebar = m_renderer.MaxSidebarScroll(m_renderState);
+        m_renderState.sidebarScroll =
+            std::clamp(m_renderState.sidebarScroll - delta * 0.25f, 0.0f, maxSidebar);
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
     m_renderState.targetScroll -= delta * 0.5f;
     m_renderState.targetScroll = std::max(0.0f, m_renderState.targetScroll);
     // Max scroll: rough upper bound
     RECT rc; GetClientRect(m_hwnd, &rc);
-    int rows = ((int)m_visibleGames.size() + 4) / 5;
-    float maxScroll = std::max(0.0f, rows * (260.0f + 16.0f + 22.0f) - (float)(rc.bottom - rc.top) + 80.0f);
+    int cols = std::max(1, m_renderer.GetCols());
+    int rows = ((int)m_visibleGames.size() + cols - 1) / cols;
+    float maxScroll = std::max(0.0f, rows * m_renderer.GridRowHeight() - (float)(rc.bottom - rc.top) + 80.0f);
     m_renderState.targetScroll = std::min(m_renderState.targetScroll, maxScroll);
 }
 
@@ -1105,6 +1171,19 @@ void App::ApplyFilter() {
     m_renderState.selectedIndex = -1;
     m_renderState.scrollOffset  = 0;
     m_renderState.targetScroll  = 0;
+
+    if (!m_renderState.selectedGameIds.empty()) {
+        std::unordered_set<std::wstring> visibleIds;
+        for (auto* g : m_visibleGames)
+            visibleIds.insert(g->id);
+        for (auto it = m_renderState.selectedGameIds.begin();
+             it != m_renderState.selectedGameIds.end(); ) {
+            if (visibleIds.count(*it) == 0)
+                it = m_renderState.selectedGameIds.erase(it);
+            else
+                ++it;
+        }
+    }
 }
 
 void App::UpdateSidebarFlags() {
@@ -1127,6 +1206,8 @@ void App::UpdateSidebarFlags() {
     int count = Renderer::GetSidebarEntryCount(m_renderState);
     if (m_renderState.sidebarFocusIdx >= count)
         m_renderState.sidebarFocusIdx = count - 1;
+    m_renderState.sidebarScroll =
+        std::min(m_renderState.sidebarScroll, m_renderer.MaxSidebarScroll(m_renderState));
 }
 
 void App::ApplySidebarFilter(int idx) {

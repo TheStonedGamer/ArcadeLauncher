@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "GameLibrary.h"
 #include <set>
+#include <unordered_set>
 
 void GameLibrary::AddGame(Game game) {
     std::lock_guard<std::mutex> lk(m_mutex);
@@ -23,6 +24,15 @@ void GameLibrary::UpdateGame(const Game& game) {
 
 void GameLibrary::MergeGames(std::vector<Game> scanned) {
     std::lock_guard<std::mutex> lk(m_mutex);
+
+    std::vector<Game> deduped;
+    std::unordered_set<std::wstring> seenIds;
+    deduped.reserve(scanned.size());
+    for (auto& s : scanned) {
+        if (seenIds.insert(s.id).second)
+            deduped.push_back(std::move(s));
+    }
+    scanned = std::move(deduped);
 
     // Identify which platforms are covered by this scan.
     std::unordered_map<std::wstring, const Game*> oldById;

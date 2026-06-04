@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "SteamScanner.h"
+#include <set>
 
 std::vector<Game> SteamScanner::Scan() {
     std::wstring steamPath = GetSteamInstallPath();
@@ -13,10 +14,27 @@ std::vector<Game> SteamScanner::Scan() {
         if (GetFileAttributesW(extra.c_str()) != INVALID_FILE_ATTRIBUTES)
             folders.push_back(extra);
 
+    std::vector<std::wstring> uniqueFolders;
+    std::set<std::wstring> seenFolders;
+    for (auto folder : folders) {
+        std::replace(folder.begin(), folder.end(), L'/', L'\\');
+        while (!folder.empty() && (folder.back() == L'\\' || folder.back() == L'/'))
+            folder.pop_back();
+
+        std::wstring key = folder;
+        for (auto& c : key) c = towlower(c);
+        if (seenFolders.insert(key).second)
+            uniqueFolders.push_back(std::move(folder));
+    }
+
     std::vector<Game> result;
-    for (auto& folder : folders) {
+    std::set<std::wstring> seenGames;
+    for (auto& folder : uniqueFolders) {
         auto games = ScanLibraryFolder(folder);
-        result.insert(result.end(), games.begin(), games.end());
+        for (auto& game : games) {
+            if (seenGames.insert(game.id).second)
+                result.push_back(std::move(game));
+        }
     }
     return result;
 }

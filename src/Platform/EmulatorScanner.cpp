@@ -58,6 +58,132 @@ static int RomScore(const std::wstring& fname) {
     return score;
 }
 
+static bool IsHexLike(const std::wstring& s) {
+    if (s.empty()) return false;
+    for (wchar_t c : s) {
+        if (!iswxdigit(c)) return false;
+    }
+    return true;
+}
+
+static std::wstring FileNameOnly(const std::wstring& path) {
+    size_t slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? path : path.substr(slash + 1);
+}
+
+static std::wstring ParentPath(const std::wstring& path) {
+    size_t slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? L"" : path.substr(0, slash);
+}
+
+static std::wstring PickGodTitle(const std::wstring& godDir, const std::wstring& rootDir) {
+    std::wstring parent = ParentPath(godDir);
+    std::wstring title = FileNameOnly(parent);
+
+    // Content\0000000000000000\<TitleID>\00007000 is common; the TitleID is
+    // not user-friendly, so prefer the next folder up when it looks better.
+    if (IsHexLike(title) || title == L"0000000000000000") {
+        std::wstring grand = FileNameOnly(ParentPath(parent));
+        if (!grand.empty() && grand != L"Content" && grand != L"0000000000000000")
+            title = grand;
+    }
+
+    if (title.empty() || title == L"00007000" || title == L"0007000")
+        title = FileNameOnly(rootDir);
+    return StripRomTags(title);
+}
+
+static std::wstring StablePathId(const std::wstring& path) {
+    uint64_t hash = 1469598103934665603ull;
+    for (wchar_t c : path) {
+        wchar_t lc = towlower(c);
+        hash ^= (uint64_t)lc;
+        hash *= 1099511628211ull;
+    }
+
+    wchar_t buf[17]{};
+    swprintf_s(buf, L"%016llx", (unsigned long long)hash);
+    return buf;
+}
+
+static bool LooksLikeGodPackageFile(const WIN32_FIND_DATAW& fd) {
+    if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) return false;
+    if (fd.nFileSizeHigh == 0 && fd.nFileSizeLow == 0) return false;
+
+    std::wstring name = fd.cFileName;
+    if (name == L"." || name == L"..") return false;
+
+    // GOD package payloads normally have no extension and live under 00007000
+    // or 0007000, depending on how the rip/tool names the content folder.
+    // Allow extensionless hex-like names, but skip obvious sidecar files.
+    if (name.find(L'.') != std::wstring::npos) return false;
+    return true;
+}
+
+static void AddXbox360GodPackages(const EmulatorRomConfig& cfg,
+                                  const std::wstring& rootDir,
+                                  const std::wstring& scanDir,
+                                  std::vector<Game>& games) {
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((scanDir + L"\\*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+
+    do {
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0)
+            continue;
+
+        std::wstring path = scanDir + L"\\" + fd.cFileName;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            std::wstring dirName = fd.cFileName;
+            for (auto& c : dirName) c = towlower(c);
+
+            if (dirName == L"00007000" || dirName == L"0007000") {
+                WIN32_FIND_DATAW pkgFd;
+                HANDLE pkg = FindFirstFileW((path + L"\\*").c_str(), &pkgFd);
+                if (pkg != INVALID_HANDLE_VALUE) {
+                    do {
+                        if (!LooksLikeGodPackageFile(pkgFd)) continue;
+
+                        std::wstring romPath = path + L"\\" + pkgFd.cFileName;
+                        std::wstring title = PickGodTitle(path, rootDir);
+
+                        std::wstring args = cfg.emulatorArgs;
+                        size_t ph = args.find(L"{rom}");
+                        if (ph != std::wstring::npos)
+                            args.replace(ph, 5, L"\"" + romPath + L"\"");
+                        else
+                            args += L" \"" + romPath + L"\"";
+
+                        Game g;
+                        g.id           = PlatformName(cfg.platform) + L"_god_" + StablePathId(romPath);
+                        g.platform     = cfg.platform;
+                        g.emulatorPath = cfg.emulatorPath;
+                        g.romPath      = romPath;
+                        g.arguments    = args;
+                        g.title        = title.empty() ? FileNameOnly(ParentPath(path)) : title;
+
+                        if (cfg.romDb) {
+                            const auto* info = cfg.romDb->Lookup(cfg.platform, g.title);
+                            if (info) {
+                                g.title       = info->title;
+                                g.igdbId      = info->igdbId;
+                                g.igdbMatched = (info->igdbId > 0);
+                            }
+                        }
+
+                        games.push_back(std::move(g));
+                    } while (FindNextFileW(pkg, &pkgFd));
+                    FindClose(pkg);
+                }
+            } else {
+                AddXbox360GodPackages(cfg, rootDir, path, games);
+            }
+        }
+    } while (FindNextFileW(h, &fd));
+
+    FindClose(h);
+}
+
 EmulatorScanner::EmulatorScanner(EmulatorRomConfig cfg) : m_cfg(std::move(cfg)) {}
 
 std::vector<Game> EmulatorScanner::Scan() {
@@ -126,6 +252,9 @@ std::vector<Game> EmulatorScanner::Scan() {
 
         } while (FindNextFileW(h, &fd));
         FindClose(h);
+
+        if (m_cfg.platform == Platform::Xbox360)
+            AddXbox360GodPackages(m_cfg, dir, dir, games);
     }
 
     // ── Deduplicate ROM variants ───────────────────────────────────────────────

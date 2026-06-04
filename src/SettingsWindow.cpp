@@ -820,7 +820,7 @@ void SettingsWindow::BuildXbox360Page() {
     y += 108;
     AddPC(Group(m_hwnd, L" ROM directories ", K_CX, y, K_CW, 206));
     AddPC(SmallLabel(m_hwnd,
-          L"Xbox 360 games  (.xex  .iso)",
+          L"Xbox 360 games  (.xex  .iso  GOD/00007000)",
           K_CX + 12, y + 18, K_CW - 24));
     AddPC(ListBox(m_hwnd, ID_P_LIST1, K_CX + 12, y + 40, K_LW, 148));
     AddPC(Btn(m_hwnd, L"Add Dir…", ID_P_BTN3, K_BX, y + 40));
